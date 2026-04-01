@@ -187,13 +187,14 @@ const History = () => {
                     <td className="p-5 text-center">
                       <div className="flex justify-center gap-2">
                         <button 
-                          onClick={() => navigate(`/analyst/classification/${item.id}`)}
+                          onClick={() => navigate(`/analyst/process/${item.id}`)}
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" 
                           title="Lihat Detail"
                         >
                           <Eye size={18} />
                         </button>
                         <button 
+                          onClick={() => navigate(`/analyst/process/${item.id}`)}
                           className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" 
                           title="Edit Data"
                         >

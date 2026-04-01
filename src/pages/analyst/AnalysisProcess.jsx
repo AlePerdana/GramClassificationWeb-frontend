@@ -104,19 +104,78 @@ const AnalysisProcess = () => {
       // Reset view saat upload baru
       setZoom(1);
       setPan({ x: 0, y: 0 });
+      setMode('drag');
     }
   };
 
-  const handleZoom = (delta) => {
-    setZoom(prev => Math.min(Math.max(prev + delta, 0.5), 5)); // Min 0.5x, Max 5x
-  };
+  // Zoom ke Tengah / Kursor
+  const handleZoom = useCallback((delta, focalPoint = null) => {
+    setZoom(prevZoom => {
+      const newZoom = Math.min(Math.max(prevZoom + delta, 0.5), 5); // Min 0.5x, Max 5x
+      if (newZoom === prevZoom) return prevZoom;
 
-  const handleWheel = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    handleZoom(delta);
-  };
+      setPan(prevPan => {
+        let fx;
+        let fy;
+        const container = showFullPreview ? modalImgRef.current : imgContainerRef.current;
+
+        if (focalPoint) {
+          fx = focalPoint.x;
+          fy = focalPoint.y;
+        } else if (container) {
+          const rect = container.getBoundingClientRect();
+          fx = rect.width / 2;
+          fy = rect.height / 2;
+        } else {
+          fx = 0;
+          fy = 0;
+        }
+
+        const scaleRatio = newZoom / prevZoom;
+        return {
+          x: fx - (fx - prevPan.x) * scaleRatio,
+          y: fy - (fy - prevPan.y) * scaleRatio
+        };
+      });
+
+      return newZoom;
+    });
+  }, [showFullPreview]);
+
+  // Native Wheel Event untuk mengunci scroll halaman & mengatur sensitivitas
+  useEffect(() => {
+    const handleNativeWheel = (e) => {
+      if (mode === 'drag') {
+        e.preventDefault(); // Kunci scroll halaman & pinch bawaan browser
+
+        // Kurangi sensitivitas (Pinch trackpad biasanya membawa ctrlKey)
+        const sensitivity = e.ctrlKey ? 0.005 : 0.002;
+        const delta = -e.deltaY * sensitivity;
+
+        const container = showFullPreview ? modalImgRef.current : imgContainerRef.current;
+        if (container) {
+          const rect = container.getBoundingClientRect();
+          const focalPoint = {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+          };
+          handleZoom(delta, focalPoint);
+        }
+      }
+    };
+
+    const containerEl = imgContainerRef.current;
+    const modalEl = modalImgRef.current;
+
+    // Harus passive: false agar e.preventDefault() berfungsi
+    if (containerEl) containerEl.addEventListener('wheel', handleNativeWheel, { passive: false });
+    if (modalEl) modalEl.addEventListener('wheel', handleNativeWheel, { passive: false });
+
+    return () => {
+      if (containerEl) containerEl.removeEventListener('wheel', handleNativeWheel);
+      if (modalEl) modalEl.removeEventListener('wheel', handleNativeWheel);
+    };
+  }, [mode, showFullPreview, handleZoom]);
 
   const resetView = () => {
     setZoom(1);
@@ -317,6 +376,22 @@ const AnalysisProcess = () => {
 
   const currentRois = rois[activeImgIdx] || [];
 
+  // --- LOGIKA STEPPER OPERASIONAL (UPDATE) ---
+  let currentStep = 1;
+  if (images.length === 0) {
+    currentStep = 1; // Upload Spesimen
+  } else if (status !== 'done') {
+    currentStep = 2; // Analisis AI
+  } else {
+    currentStep = 3; // Review & Kirim
+  }
+
+  const steps = [
+    { num: 1, label: 'Upload Sampel' },
+    { num: 2, label: 'Analisis Gram' },
+    { num: 3, label: 'Review & Kirim' }
+  ];
+
   return (
     <>
     <div className="max-w-7xl mx-auto pb-10 min-h-[calc(100vh-100px)] lg:h-[calc(100vh-100px)] flex flex-col bg-slate-50/80 p-2 md:p-4 rounded-2xl">
@@ -329,6 +404,42 @@ const AnalysisProcess = () => {
         >
           <ArrowLeft size={18} className="md:w-5 md:h-5" /> Kembali ke Daftar
         </button>
+      </div>
+
+      {/* --- UI STEPPER --- */}
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-4 hidden md:flex items-center justify-between w-full">
+        {steps.map((step, index) => (
+          <React.Fragment key={step.num}>
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-colors ${
+                currentStep > step.num
+                  ? 'bg-green-500 text-white'
+                  : currentStep === step.num
+                    ? 'bg-blue-600 text-white ring-4 ring-blue-100'
+                    : 'bg-slate-100 text-slate-400'
+              }`}>
+                {currentStep > step.num ? <CheckCircle size={18} /> : step.num}
+              </div>
+              <span className={`text-sm font-semibold ${currentStep >= step.num ? 'text-slate-800' : 'text-slate-400'}`}>
+                {step.label}
+              </span>
+            </div>
+            {index < steps.length - 1 && (
+              <div className={`flex-1 h-1 mx-4 rounded-full ${currentStep > step.num ? 'bg-green-500' : 'bg-slate-100'}`}></div>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* Mobile Stepper (Versi Ringkas) */}
+      <div className="md:hidden bg-white p-3 rounded-xl shadow-sm border border-slate-200 mb-4 flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
+          {currentStep}
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 font-medium">Langkah {currentStep} dari 3</p>
+          <p className="text-sm font-bold text-slate-800">{steps[currentStep - 1]?.label}</p>
+        </div>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 h-full flex-1">
@@ -372,7 +483,6 @@ const AnalysisProcess = () => {
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
                 onTouchCancel={handleTouchEnd}
-                onWheel={handleWheel}
               >
                 {/* Navigasi Gambar (Preview Box) */}
                 {images.length > 1 && (
@@ -743,7 +853,6 @@ const AnalysisProcess = () => {
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
-            onWheel={handleWheel}
           >
             {/* Transform Layer */}
             <div 

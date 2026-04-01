@@ -103,7 +103,7 @@ const PatientManagement = () => {
     <div className="space-y-6 bg-slate-50/80 p-4 rounded-2xl">
       
       {/* HEADER & ACTIONS */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-6 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Manajemen Pasien</h1>
           <p className="text-gray-500 mt-1">Kelola data pasien dan registrasi sampel baru</p>

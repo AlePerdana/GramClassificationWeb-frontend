@@ -1,397 +1,216 @@
-import React, { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { 
-  Save, 
-  Upload, 
-  Play, 
-  Trash2, 
-  Check, 
-  Zap, 
-  Layers, 
-  FileUp,
-  Activity,
-  Target,
-  BarChart2,
-  Settings,
-  Database,
-  FileArchive,
-  Calendar,
-  Clock,
-  RefreshCw
+import React, { useState } from 'react';
+import {
+  Save, Upload, Play, Trash2, Check, Zap, Layers, FileUp, Activity, Target,
+  BarChart2, Settings, Database, Clock, TrendingUp, TrendingDown, Cpu, Star, CheckCircle
 } from 'lucide-react';
 
-// --- DUMMY DATA ---
-const dummyDetectionModels = [
-  { id: 101, name: 'YOLOv8-Nano-Base', version: '1.0', accuracy: '91.5%', uploaded: '2026-01-10', status: 'Tidak Aktif' },
-  { id: 102, name: 'YOLOv8-Nano-V2', version: '2.1', accuracy: '94.2%', uploaded: '2026-01-25', status: 'Aktif' },
+// --- DATA GABUNGAN ---
+const initialYoloModels = [
+  { id: 101, version: 'YOLOv8-Nano-Base', date: '10 Jan 2026', accuracy: 88.5, f1Score: 87.2, inferenceTime: 0.8, delta: { acc: 0, f1: 0, time: 0 }, status: 'Arsip' },
+  { id: 102, version: 'YOLOv8-Nano-V2', date: '25 Jan 2026', accuracy: 92.1, f1Score: 91.5, inferenceTime: 0.6, delta: { acc: 3.6, f1: 4.3, time: -0.2 }, status: 'Aktif' },
+  { id: 103, version: 'YOLOv8-Medium-Exp', date: '15 Feb 2026', accuracy: 94.8, f1Score: 94.1, inferenceTime: 1.5, delta: { acc: 2.7, f1: 2.6, time: 0.9 }, status: 'Arsip' },
 ];
 
-const dummyClassificationModels = [
-  { id: 201, name: 'ResNet50-Microbio', version: '1.0', accuracy: '88.0%', uploaded: '2026-01-05', status: 'Tidak Aktif' },
-  { id: 202, name: 'GramVIT-B1', version: '1.2', accuracy: '96.5%', uploaded: '2026-01-20', status: 'Aktif' },
-  { id: 203, name: 'Custom-CNN-Lite', version: '0.9', accuracy: '85.2%', uploaded: '2026-01-22', status: 'Tidak Aktif' },
+const initialCnnModels = [
+  { id: 201, version: 'ResNet50-Microbio', date: '05 Jan 2026', accuracy: 88.0, f1Score: 87.5, inferenceTime: 2.5, delta: { acc: 0, f1: 0, time: 0 }, status: 'Arsip' },
+  { id: 202, version: 'GramVIT-B1', date: '20 Jan 2026', accuracy: 96.5, f1Score: 95.8, inferenceTime: 1.2, delta: { acc: 8.5, f1: 8.3, time: -1.3 }, status: 'Aktif' },
+  { id: 203, version: 'Custom-CNN-Lite', date: '22 Jan 2026', accuracy: 85.2, f1Score: 84.8, inferenceTime: 0.4, delta: { acc: -11.3, f1: -11.0, time: -0.8 }, status: 'Arsip' },
 ];
 
-// --- KOMPONEN KECIL: KARTU METRIK ---
-const MetricCard = ({ label, value, icon: Icon }) => (
-  <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-md shadow-slate-300/40 flex items-center justify-between">
-    <div>
-      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">{label}</p>
-      <p className="text-xl font-bold text-gray-800 mt-1">{value}</p>
-    </div>
-    <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
-      <Icon size={20} />
-    </div>
-  </div>
-);
+// Helper Panah Indikator
+const MetricDelta = ({ value, isTime = false }) => {
+  if (value === 0) return <span className="text-gray-400 text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full bg-slate-50 border border-gray-100">-</span>;
+  const isBetter = isTime ? value < 0 : value > 0;
+  const color = isBetter ? 'text-green-500' : 'text-red-500';
+  const Icon = value > 0 ? TrendingUp : TrendingDown;
+  return (
+    <span className={`inline-flex items-center text-[10px] font-bold ml-1.5 px-1.5 py-0.5 rounded-full bg-slate-50 border ${isBetter ? 'border-green-100' : 'border-red-100'} ${color}`}>
+      <Icon size={10} className="mr-0.5" />
+      {Math.abs(value).toFixed(1)}{isTime ? 's' : '%'}
+    </span>
+  );
+};
 
-const AIConfiguration = () => {
-  const location = useLocation();
-  // State Tab
+const ModelManagement = () => {
   const [activeTab, setActiveTab] = useState('detection');
+  const [yoloModels, setYoloModels] = useState(initialYoloModels);
+  const [cnnModels, setCnnModels] = useState(initialCnnModels);
 
-  // State Data Model
-  const [detModels, setDetModels] = useState(dummyDetectionModels);
-  const [clsModels, setClsModels] = useState(dummyClassificationModels);
-
-  // State Config & Training
-  const [threshold, setThreshold] = useState(50);
+  // State Panel Kanan
+  const [autoRetrain, setAutoRetrain] = useState(false);
   const [isTraining, setIsTraining] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [dataSource, setDataSource] = useState('system'); 
-  
-  // State Baru: Auto Retrain & Last Update
-  const [autoRetrain, setAutoRetrain] = useState(false);
-  const [lastRetrained, setLastRetrained] = useState('25 Jan 2026, 14:30');
 
-  // Honor navigation intent from dashboard CTA
-  useEffect(() => {
-    const navTab = location.state?.tab;
-    if (navTab === 'detection' || navTab === 'classification') {
-      setActiveTab(navTab);
+  // Akses Data Aktif
+  const currentModels = activeTab === 'detection' ? yoloModels : cnnModels;
+  const bestModel = [...currentModels].sort((a, b) => b.f1Score - a.f1Score)[0];
+  const activeModel = currentModels.find(m => m.status === 'Aktif') || currentModels[0];
+
+  // Handler Aksi Tabel
+  const handleActivateModel = (id) => {
+    if(window.confirm('Ganti model AI yang digunakan di produksi?')) {
+      if (activeTab === 'detection') {
+        setYoloModels(yoloModels.map(m => ({ ...m, status: m.id === id ? 'Aktif' : 'Arsip' })));
+      } else {
+        setCnnModels(cnnModels.map(m => ({ ...m, status: m.id === id ? 'Aktif' : 'Arsip' })));
+      }
     }
-  }, [location.state]);
+  };
 
-  // Helper untuk mendapatkan model aktif saat ini
-  const currentModels = activeTab === 'detection' ? detModels : clsModels;
-  const activeModelName = currentModels.find(m => m.status === 'Aktif')?.name || 'Belum ada model aktif';
-
-  // Handler Aktivasi Model
-  const handleActivate = (id) => {
-    if (activeTab === 'detection') {
-      setDetModels(detModels.map(m => ({ ...m, status: m.id === id ? 'Aktif' : 'Tidak Aktif' })));
-    } else {
-      setClsModels(clsModels.map(m => ({ ...m, status: m.id === id ? 'Aktif' : 'Tidak Aktif' })));
+  const handleDeleteModel = (id) => {
+    if(window.confirm('Hapus model ini dari sistem?')) {
+      if (activeTab === 'detection') setYoloModels(yoloModels.filter(m => m.id !== id));
+      else setCnnModels(cnnModels.filter(m => m.id !== id));
     }
   };
 
   // Handler Training
   const handleStartTraining = () => {
-    if (dataSource === 'upload') {
-      alert("Fitur upload dataset dipilih. (Simulasi)");
-    }
-    
-    setIsTraining(true);
-    setProgress(0);
-    
+    setIsTraining(true); setProgress(0);
     const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsTraining(false);
-          
-          // Update waktu terakhir training secara otomatis setelah selesai
-          const now = new Date();
-          const dateString = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
-          const timeString = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-          setLastRetrained(`${dateString}, ${timeString}`);
-          
-          alert(`Training selesai! Model ${activeModelName} v.Next telah dibuat.`);
-          return 100;
-        }
-        return prev + 5; 
+      setProgress(prev => {
+        if (prev >= 100) { clearInterval(interval); setIsTraining(false); return 100; }
+        return prev + 10;
       });
-    }, 200);
+    }, 500);
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-2 bg-slate-50/80 p-4 rounded-2xl">
-      
-      {/* HEADER */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-800">Konfigurasi AI</h1>
-        <p className="text-gray-500 mt-1">Manajemen model, konfigurasi parameter, dan pelatihan ulang (Retraining)</p>
-      </div>
+    <div className="space-y-6 max-w-7xl mx-auto bg-slate-50/80 p-4 rounded-2xl">
 
-      {/* TAB NAVIGATION */}
+      {/* HEADER & TABS */}
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">Manajemen AI</h1>
+          <p className="text-gray-500 mt-1">Kelola versi model, pantau performa inferensi, dan konfigurasi pelatihan ulang.</p>
+        </div>
+
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
-        <button
-          onClick={() => setActiveTab('detection')}
-          className={`px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${
-            activeTab === 'detection' 
-              ? 'bg-white text-blue-600 shadow-sm' 
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
+        <button onClick={() => setActiveTab('detection')} className={`px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'detection' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
           <Zap size={18} /> Deteksi Objek (YOLO)
         </button>
-        <button
-          onClick={() => setActiveTab('classification')}
-          className={`px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${
-            activeTab === 'classification' 
-              ? 'bg-white text-blue-600 shadow-sm' 
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
+        <button onClick={() => setActiveTab('classification')} className={`px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'classification' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
           <Layers size={18} /> Klasifikasi Gram (CNN)
         </button>
       </div>
 
-      {/* 1. METRIK PERFORMA MODEL AKTIF (Full width) */}
-      <div className="bg-white p-6 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-          <h3 className="font-bold text-gray-800 flex items-center gap-2">
-            <Activity size={18} className="text-blue-600" /> 
-            Performa Model Aktif
-          </h3>
-          <span className="text-xs font-mono bg-blue-50 text-blue-700 px-2 py-1 rounded border border-blue-100 flex items-center gap-1 w-fit">
-            <Check size={10} /> {activeModelName}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MetricCard label="Accuracy" value={activeTab === 'detection' ? "94.2%" : "96.5%"} icon={Target} />
-          <MetricCard label="Precision" value={activeTab === 'detection' ? "92.5%" : "95.1%"} icon={BarChart2} />
-          <MetricCard label="Recall" value={activeTab === 'detection' ? "95.1%" : "94.8%"} icon={Activity} />
-          <MetricCard label="F1-Score" value={activeTab === 'detection' ? "93.8%" : "95.5%"} icon={Zap} />
-        </div>
-      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
-      {/* --- KONTEN UTAMA --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* KOLOM KIRI (2/3): Model Management */}
-        <div className="lg:col-span-2 space-y-6">
+        {/* AREA KIRI: MONITORING & TABEL (Lebar 2 Kolom) */}
+        <div className="xl:col-span-2 space-y-6">
 
-          {/* 2. DAFTAR MODEL */}
-          <div className="bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 overflow-hidden">
-            <div className="p-5 border-b border-gray-100 flex justify-between items-center">
-              <h3 className="font-bold text-gray-800">Daftar Model Tersedia</h3>
-              <span className="text-xs text-gray-400">Pilih model untuk {activeTab === 'detection' ? 'deteksi' : 'klasifikasi'}</span>
+          {/* Kartu Ringkasan */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-xl shadow-md border border-gray-200 border-l-4 border-l-blue-500">
+              <div className="flex items-center gap-2 mb-2"><Cpu size={18} className="text-blue-600"/><h3 className="font-bold text-gray-700 text-sm">Model Aktif</h3></div>
+              <p className="text-lg font-black text-gray-800 truncate" title={activeModel?.version}>{activeModel?.version}</p>
+              <div className="mt-1 text-xs text-gray-500 flex justify-between">Akurasi: <span className="font-bold text-gray-700">{activeModel?.accuracy}%</span></div>
             </div>
-            
-            <div className="w-full overflow-x-auto pb-4 custom-scrollbar">
-              <table className="w-full text-left text-sm whitespace-nowrap min-w-[860px]">
-                <thead className="bg-gray-50 text-gray-500 font-semibold uppercase text-xs">
-                  <tr>
-                    <th className="p-4">Nama Model</th>
-                    <th className="p-4 text-center">Versi</th>
+            <div className="bg-white p-5 rounded-xl shadow-md border border-gray-200 border-l-4 border-l-indigo-500">
+              <div className="flex items-center gap-2 mb-2"><Star size={18} className="text-indigo-600"/><h3 className="font-bold text-gray-700 text-sm">Rekomendasi</h3></div>
+              <p className="text-lg font-black text-indigo-800 truncate" title={bestModel?.version}>{bestModel?.version}</p>
+              <div className="mt-1 text-xs text-gray-500 flex justify-between">F1-Score: <span className="font-bold text-indigo-700">{bestModel?.f1Score}%</span></div>
+            </div>
+            <div className="bg-white p-5 rounded-xl shadow-md border border-gray-200 border-l-4 border-l-orange-500">
+              <div className="flex items-center gap-2 mb-2"><Activity size={18} className="text-orange-600"/><h3 className="font-bold text-gray-700 text-sm">Rata-rata Inferensi</h3></div>
+              <p className="text-lg font-black text-gray-800">{activeModel?.inferenceTime} <span className="text-xs font-semibold text-gray-500">s/citra</span></p>
+              <div className="mt-1 text-[10px] font-medium text-gray-400">*Batas: {activeTab === 'detection' ? '< 1.5s' : '< 2.0s'}</div>
+            </div>
+          </div>
+
+          {/* Tabel Komparasi */}
+          <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+            <div className="p-4 border-b border-gray-100 bg-gray-50"><h3 className="font-bold text-gray-800">Daftar Versi Model</h3></div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-center border-collapse">
+                <thead>
+                  <tr className="bg-white border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wide">
+                    <th className="p-4 text-left pl-6">Versi Model</th>
                     <th className="p-4 text-center">Akurasi</th>
-                    <th className="p-4 text-center">Upload</th>
-                    <th className="p-4 text-center w-28">Status</th>
-                    <th className="p-4 text-center w-24">Aksi</th>
+                    <th className="p-4 text-center">F1-Score</th>
+                    <th className="p-4 text-center">Inferensi</th>
+                    <th className="p-4 text-center">Status</th>
+                    <th className="p-4 text-center">Aksi</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {currentModels.map((model) => (
-                    <tr 
-                      key={model.id} 
-                      className={`transition-colors hover:bg-blue-50/10 ${model.status === 'Aktif' ? 'bg-blue-50/30' : ''}`}
-                    >
-                      <td className="p-4 font-medium text-gray-800">{model.name}</td>
-                      <td className="p-4 text-center text-gray-500">{model.version}</td>
-                      <td className="p-4 text-center font-bold text-gray-700">{model.accuracy}</td>
-                      <td className="p-4 text-center text-gray-400 text-xs whitespace-nowrap">{model.uploaded}</td>
-                      <td className="p-4 text-center whitespace-nowrap w-28">
-                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                          model.status === 'Aktif'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-gray-100 text-gray-500'
-                        }`}>
+                <tbody className="divide-y divide-gray-50 text-sm">
+                  {[...currentModels].reverse().map((model) => {
+                    const isBest = model.id === bestModel?.id;
+                    return (
+                    <tr key={model.id} className={`hover:bg-blue-50/30 ${model.status === 'Aktif' ? 'bg-blue-50/10' : ''}`}>
+                      <td className="p-4 text-left pl-6">
+                        <div className="flex items-center gap-2">
+                          <div className="font-bold text-gray-800">{model.version}</div>
+                          {isBest && (
+                            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded-full border border-indigo-200 inline-flex items-center gap-1">
+                              <Star size={10} /> Rekomendasi
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-gray-400 mt-0.5"><Clock size={10} className="inline mr-1"/>{model.date}</div>
+                      </td>
+                      <td className="p-4 text-center whitespace-nowrap"><span className="font-bold">{model.accuracy}%</span><MetricDelta value={model.delta.acc}/></td>
+                      <td className="p-4 text-center whitespace-nowrap"><span className="font-bold">{model.f1Score}%</span><MetricDelta value={model.delta.f1}/></td>
+                      <td className="p-4 text-center whitespace-nowrap"><span className="font-bold">{model.inferenceTime}s</span><MetricDelta value={model.delta.time} isTime/></td>
+                      <td className="p-4 text-center">
+                        <span className={`px-2 py-1 rounded text-[10px] font-bold ${model.status === 'Aktif' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
                           {model.status}
                         </span>
                       </td>
                       <td className="p-4 text-center">
-                        <div className="flex justify-center gap-2">
-                          {model.status !== 'Aktif' ? (
-                            <button 
-                              onClick={() => handleActivate(model.id)}
-                              className="p-1.5 text-blue-600 hover:bg-blue-100 rounded tooltip" 
-                              title="Aktifkan"
-                            >
-                              <Check size={16} />
-                            </button>
-                          ) : (
-                            <span className="inline-block w-8" aria-hidden="true"></span>
+                        <div className="flex items-center justify-center gap-2">
+                          {model.status !== 'Aktif' && (
+                            <button onClick={() => handleActivateModel(model.id)} className="p-1.5 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded" title="Jadikan Aktif"><Check size={16}/></button>
                           )}
-                          <button className="p-1.5 text-red-600 hover:bg-red-100 rounded tooltip" title="Hapus">
-                            <Trash2 size={16} />
-                          </button>
+                          <button onClick={() => handleDeleteModel(model.id)} className="p-1.5 text-red-600 bg-red-50 hover:bg-red-100 rounded" title="Hapus"><Trash2 size={16}/></button>
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-            {/* Footer Pagination (Static) */}
-            <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm text-gray-500">
-              <span>Menampilkan {currentModels.length} dari {currentModels.length} model</span>
-              <div className="flex gap-2">
-                <button className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50" disabled>Prev</button>
-                <button className="px-3 py-1 border border-gray-200 rounded bg-white hover:bg-gray-50">Next</button>
-              </div>
-            </div>
           </div>
-
-          {/* 3. UPLOAD MODEL BARU */}
-          <div className="bg-white p-6 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 border-dashed border-2 hover:border-blue-400 transition-colors cursor-pointer group text-center">
-            <div className="flex flex-col items-center justify-center py-4">
-              <div className="p-4 bg-blue-50 text-blue-600 rounded-full mb-3 group-hover:scale-110 transition-transform">
-                <FileUp size={32} />
-              </div>
-              <h4 className="font-bold text-gray-800">Upload Model Baru</h4>
-              <p className="text-sm text-gray-500 mt-1">
-                Drag & drop file model ({activeTab === 'detection' ? '.pt' : '.h5'}) di sini.
-              </p>
-            </div>
-          </div>
-
         </div>
 
-        {/* KOLOM KANAN (1/3): Config & Retraining */}
-        <div className="space-y-6">
-          
-          {/* 1. KONFIGURASI PARAMETER */}
-          <div className="bg-white p-6 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200">
-            <div className="flex items-center gap-2 mb-6 pb-4 border-b border-gray-100">
-              <Settings size={18} className="text-gray-500" />
-              <h3 className="font-bold text-gray-800">Parameter Dasar</h3>
-            </div>
-            
-            <div>
-              <div className="flex justify-between mb-2">
-                <label className="text-sm font-bold text-gray-700">Confidence Threshold</label>
-                <span className="text-sm font-bold text-blue-600">{threshold}%</span>
-              </div>
-              <input 
-                type="range" min="10" max="90" step="1"
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                value={threshold}
-                onChange={(e) => setThreshold(e.target.value)}
-              />
-              <p className="text-xs text-gray-400 mt-2">
-                Batas keyakinan minimum agar objek dideteksi oleh AI.
-              </p>
-            </div>
+        {/* AREA KANAN: KONFIGURASI (Lebar 1 Kolom) */}
+        <div className="xl:col-span-1 space-y-6">
 
-            <button className="w-full mt-6 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-lg text-sm font-bold flex justify-center items-center gap-2 transition-colors">
-              <Save size={16} /> Simpan Pengaturan
-            </button>
+          {/* Panel Upload */}
+          <div className="bg-white p-5 rounded-xl shadow-md border border-gray-200">
+            <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><FileUp size={18} className="text-slate-500"/> Upload Model Baru</h3>
+            <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center text-center cursor-pointer hover:bg-gray-50 transition-colors">
+              <Upload size={32} className="text-gray-400 mb-3" />
+              <p className="text-sm font-bold text-gray-700">Drag & drop file model</p>
+              <p className="text-xs text-gray-500 mt-1">.pt, .onnx, .h5 (Max 200MB)</p>
+              <button className="mt-4 px-4 py-2 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-700 shadow-sm">Pilih File</button>
+            </div>
+            <button className="w-full mt-4 py-2.5 rounded-lg text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md flex justify-center items-center gap-2"><Save size={16} /> Simpan ke Registry</button>
           </div>
 
-          {/* 2. PANEL RETRAINING */}
-          <div className="bg-white p-6 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-20 rounded-full bg-blue-500 bg-opacity-5 -mr-10 -mt-10"></div>
+          {/* Panel Auto-Retrain */}
+          <div className="bg-white p-5 rounded-xl shadow-md border border-gray-200">
+            <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Database size={18} className="text-slate-500"/> Pelatihan Ulang (Retrain)</h3>
+            <p className="text-xs text-gray-500 mb-4">Gunakan data Gram Stain yang divalidasi dokter untuk melatih model aktif.</p>
 
-            <div className="relative z-10">
-              
-              {/* Header Retraining dengan Waktu Terakhir */}
-              <div className="mb-4">
-                  <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                    <RefreshCw size={18} className="text-blue-600"/> Pelatihan Ulang
-                  </h3>
-                  <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                    <Clock size={10} /> Terakhir: <span className="font-medium text-gray-700">{lastRetrained}</span>
-                  </p>
+            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 mb-4">
+              <div>
+                <p className="text-sm font-bold text-gray-800">Auto-Retrain</p>
+                <p className="text-[10px] text-gray-500">Latih otomatis setiap 500 data baru</p>
               </div>
-
-              {/* Pilihan Sumber Data */}
-              <p className="text-xs font-bold text-gray-500 uppercase mb-2">Sumber Data</p>
-              <div className="grid grid-cols-2 gap-2 mb-4">
-                <button
-                  onClick={() => setDataSource('upload')}
-                  className={`p-2 text-xs font-bold rounded-lg border flex flex-col items-center gap-1 transition-all ${
-                    dataSource === 'upload' 
-                      ? 'border-blue-500 bg-white text-blue-700 shadow-sm' 
-                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                  }`}
-                >
-                  <FileArchive size={16} />
-                  Upload
-                </button>
-                <button
-                  onClick={() => setDataSource('system')}
-                  className={`p-2 text-xs font-bold rounded-lg border flex flex-col items-center gap-1 transition-all ${
-                    dataSource === 'system' 
-                      ? 'border-blue-500 bg-white text-blue-700 shadow-sm' 
-                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                  }`}
-                >
-                  <Database size={16} />
-                  Sistem
-                </button>
+              <div onClick={() => setAutoRetrain(!autoRetrain)} className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors ${autoRetrain ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                <div className={`w-3.5 h-3.5 bg-white rounded-full shadow-md transform transition-transform ${autoRetrain ? 'translate-x-4.5' : 'translate-x-0'}`} />
               </div>
-
-              {/* Konten Berdasarkan Pilihan */}
-              <div className="mb-6 p-3 bg-gray-50 rounded-lg border border-gray-200 min-h-[60px] flex items-center justify-center">
-                {dataSource === 'upload' ? (
-                  <p className="text-xs font-bold text-gray-700 flex items-center justify-center gap-2">
-                     <Upload size={14} /> Upload Dataset (.Zip)
-                  </p>
-                ) : (
-                  <div className="text-center w-full">
-                    <p className="text-xs font-bold text-gray-700 flex items-center justify-center gap-2">
-                      <Check size={14} className="text-green-500" /> Data Tervalidasi
-                     </p>
-                     <p className="text-[10px] text-gray-500 mt-0.5">128 sampel siap</p>
-                  </div>
-                )}
-              </div>
-
-              {/* TOGGLE AUTO RETRAIN */}
-              <div className="flex items-center justify-between mb-6 pt-4 border-t border-gray-100">
-                <div>
-                   <p className="text-sm font-bold text-gray-800 flex items-center gap-1">
-                      <Calendar size={14} className="text-gray-500"/> Auto-Retrain
-                   </p>
-                   <p className="text-[10px] text-gray-400">Jadwal: Setiap Minggu</p>
-                </div>
-                <div 
-                   onClick={() => setAutoRetrain(!autoRetrain)}
-                   className={`w-10 h-6 rounded-full p-1 cursor-pointer transition-colors ${
-                     autoRetrain ? 'bg-blue-600' : 'bg-gray-300'
-                   }`}
-                >
-                   <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${
-                     autoRetrain ? 'translate-x-4' : 'translate-x-0'
-                   }`} />
-                </div>
-              </div>
-
-              {/* Progress Bar & Button */}
-              {isTraining ? (
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs font-bold text-gray-600">
-                    <span>Sedang Melatih...</span>
-                    <span>{progress}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
-                      style={{ width: `${progress}%` }}
-                    ></div>
-                  </div>
-                </div>
-              ) : (
-                <button 
-                  onClick={handleStartTraining}
-                  className="w-full py-2.5 rounded-lg text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md flex justify-center items-center gap-2 transition-all active:scale-95"
-                >
-                  <Play size={16} /> Mulai Sekarang
-                </button>
-              )}
-              
             </div>
+
+            {isTraining ? (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs font-bold text-gray-600"><span>Sedang Melatih...</span><span>{progress}%</span></div>
+                <div className="w-full bg-gray-200 rounded-full h-2"><div className="bg-blue-600 h-2 rounded-full transition-all" style={{ width: `${progress}%` }}></div></div>
+              </div>
+            ) : (
+              <button onClick={handleStartTraining} className="w-full py-2.5 rounded-lg text-sm font-bold text-white bg-slate-800 hover:bg-slate-900 shadow-md flex justify-center items-center gap-2"><Play size={16} /> Mulai Manual</button>
+            )}
           </div>
 
         </div>
@@ -400,4 +219,4 @@ const AIConfiguration = () => {
   );
 };
 
-export default AIConfiguration;
+export default ModelManagement;

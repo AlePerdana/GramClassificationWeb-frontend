@@ -138,7 +138,7 @@ const Login = () => {
                     type="submit"
                     className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-primary hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all transform hover:scale-[1.02]"
                 >
-                    Masuk ke Sistem
+                    Login
                 </button>
             </form>
 

@@ -20,8 +20,8 @@ const Sidebar = ({ role, isOpen, toggleSidebar, isMobileOpen, setIsMobileOpen })
   const menus = {
     admin: [
       { path: '/admin', name: 'Beranda', icon: LayoutDashboard },
-      { path: '/admin/models', name: 'Konfigurasi AI', icon: Activity },
-      { path: '/admin/patients', name: 'Data Pasien', icon: Database },
+      { path: '/admin/models', name: 'Manajemen AI', icon: Activity },
+      { path: '/admin/patients', name: 'Manajemen Pasien', icon: Database },
       { path: '/admin/users', name: 'Manajemen Pengguna', icon: Users },
     ],
     dokter: [

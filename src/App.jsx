@@ -13,6 +13,7 @@ import AnalystHistory from './pages/analyst/History';
 import ValidationList from './pages/doctor/ValidationList';
 import ValidationDetail from './pages/doctor/ValidationDetail';
 import DoctorHistory from './pages/doctor/History';
+import MedicalReport from './pages/doctor/MedicalReport';
 
 // Dummy component untuk halaman lain (biar link di sidebar tidak 404)
 const PlaceholderPage = ({ title }) => <h1 className="text-xl text-gray-500">{title} (Segera Hadir)</h1>;
@@ -40,6 +41,9 @@ function App() {
           <Route path="validation/:id" element={<ValidationDetail />} />
           <Route path="history" element={<DoctorHistory />} />
         </Route>
+
+        {/* Halaman cetak laporan (fullscreen, tanpa sidebar) */}
+        <Route path="/doctor/report/:id" element={<MedicalReport />} />
 
         {/* --- ROUTE ANALIS --- */}
         <Route path="/analyst" element={<MainLayout role="analis" />}>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
-  Search, Printer, Eye, Download, Edit, 
-  CheckCircle, XCircle
+  Search, Printer, Eye, Edit, Clock
 } from 'lucide-react';
 
 // --- DUMMY DATA RIWAYAT ---
@@ -43,6 +43,7 @@ const historyData = [
 
 const History = () => {
   const [searchTerm, setSearchTerm] = useState('');
+  const navigate = useNavigate();
 
   // Filter Logic Sederhana
   const filteredData = historyData.filter(item => {
@@ -79,59 +80,36 @@ const History = () => {
 
         {/* TABLE */}
         <div className="w-full overflow-x-auto pb-4 custom-scrollbar">
-          <table className="w-full text-center border-collapse whitespace-nowrap min-w-[1000px]">
+          <table className="w-full text-center border-collapse">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wide text-center">
-                <th className="p-5 text-center">Waktu Validasi</th>
-                <th className="p-5 text-center">Nama Pasien</th>
-                <th className="p-5 text-center">Kode Sampel</th>
-                <th className="p-5 text-center">Analis</th>
-                <th className="p-5 text-center">Dokter Validator</th>
-                <th className="p-5 text-center">Detail Jumlah</th>
-                <th className="p-5 text-center">Status</th>
-                <th className="p-5 text-center">Aksi</th>
+              <tr className="bg-white border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wide">
+                <th className="p-4 text-left pl-6">Waktu Validasi</th>
+                <th className="p-4 text-left">Identitas Pasien</th>
+                <th className="p-4 text-center">Ringkasan Hasil</th>
+                <th className="p-4 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 text-sm">
               {filteredData.length > 0 ? (
                 filteredData.map((item) => (
-                  <tr key={item.id} className="hover:bg-teal-50/20 transition-colors">
-                    
-                    {/* Waktu */}
-                    <td className="p-5 text-center">
-                      <div className="flex items-center justify-center gap-2 text-gray-600 font-medium">
-                        <span>{`${item.date}, ${item.time}`}</span>
+                  <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
+
+                    {/* Kolom 1: Waktu Validasi */}
+                    <td className="p-4 text-left pl-6 whitespace-nowrap">
+                      <div className="font-bold text-gray-800">{item.date}</div>
+                      <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                        <Clock size={12} /> {item.time} WIB
                       </div>
                     </td>
 
-                    {/* Pasien */}
-                    <td className="p-5 text-center">
-                      <div className="flex items-center justify-center gap-3">
-                        <div>
-                          <p className="font-bold text-gray-800">{item.patient}</p>
-                        </div>
-                      </div>
+                    {/* Kolom 2: Identitas Pasien (Nama + ID Spesimen) */}
+                    <td className="p-4 text-left whitespace-nowrap">
+                      <div className="font-bold text-gray-800">{item.patient}</div>
+                      <div className="text-xs font-mono text-gray-500 mt-0.5">{item.code}</div>
                     </td>
 
-                    {/* Kode Sampel */}
-                    <td className="p-5 text-center">
-                      <span className="text-[11px] font-mono bg-gray-100 px-2 py-1 rounded text-gray-700 border border-gray-200 inline-block">
-                        {item.code}
-                      </span>
-                    </td>
-
-                    {/* Analis */}
-                    <td className="p-5 text-center text-gray-600">
-                      {item.analyst}
-                    </td>
-
-                    {/* Dokter Validator */}
-                    <td className="p-5 text-center text-gray-700 font-medium">
-                      {item.doctor}
-                    </td>
-
-                    {/* Kolom Detail Jumlah (Revisi: Badge Eksplisit Horizontal) */}
-                    <td className="p-5 text-center">
+                    {/* Kolom 3: Ringkasan Hasil */}
+                    <td className="p-4 text-center">
                       <div className="flex flex-wrap items-center justify-center gap-2">
                         <div className="flex items-center px-2 py-1 rounded-md bg-blue-50 border border-blue-100 text-blue-700 text-xs font-medium">
                           <span className="opacity-70 mr-1">Pos:</span>
@@ -159,23 +137,28 @@ const History = () => {
                       </div>
                     </td>
 
-                    {/* Kolom Status Validasi */}
-                    <td className="p-5 text-center">
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-100">
-                        Sudah Validasi
-                      </span>
-                    </td>
-
-                    {/* Aksi */}
-                    <td className="p-5 text-center">
+                    {/* Kolom 4: Aksi */}
+                    <td className="p-4 text-center">
                       <div className="flex justify-center gap-2">
-                        <button className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Lihat Detail">
+                        <button
+                          onClick={() => navigate(`/doctor/validation/${item.id}`)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Lihat Detail"
+                        >
                           <Eye size={18} />
                         </button>
-                        <button className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="Edit Data">
+                        <button
+                          onClick={() => navigate(`/doctor/validation/${item.id}?edit=true`)}
+                          className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                          title="Edit Data"
+                        >
                           <Edit size={18} />
                         </button>
-                        <button className="p-2 text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 rounded-lg transition-colors" title="Cetak Hasil">
+                        <button
+                          onClick={() => navigate(`/doctor/report/${item.id}`)}
+                          className="p-2 text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 rounded-lg transition-colors"
+                          title="Cetak Hasil"
+                        >
                           <Printer size={18} />
                         </button>
                       </div>
@@ -185,7 +168,7 @@ const History = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan="8" className="p-10 text-center text-gray-400 italic">
+                  <td colSpan="4" className="p-10 text-center text-gray-400 italic">
                     Tidak ada data riwayat untuk periode ini.
                   </td>
                 </tr>

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, User, Activity, ZoomIn, ZoomOut, 
-  Microscope, X, Eye, Download, Check, RefreshCw, Save
+  Microscope, X, Eye, Download, Check, CheckCircle
 } from 'lucide-react';
 
 // --- DUMMY DATA ---
@@ -25,13 +25,24 @@ const validationDetailData = {
 };
 
 const ValidationDetail = () => {
-  const { id } = useParams();
+  const { id: _id } = useParams();
   const navigate = useNavigate();
   const data = validationDetailData[1];
 
   // State untuk menyimpan validasi per baris (crop ID)
   // Format: { 101: { shape: 'Kokus', gram: 'Positif' }, ... }
-  const [validations, setValidations] = useState({});
+  const [validations, setValidations] = useState(() => {
+    if (!data) return {};
+    const initialValidations = {};
+    data.crops.forEach((crop) => {
+      initialValidations[crop.id] = {
+        shape: crop.aiShape,
+        gram: crop.aiGram,
+        status: 'pending'
+      };
+    });
+    return initialValidations;
+  });
   const [doctorNotes, setDoctorNotes] = useState('');
   
   // State Modal Preview
@@ -54,26 +65,12 @@ const ValidationDetail = () => {
     return Math.min(cw / iw, ch / ih);
   };
 
-  const fitModalPreview = () => {
+  const fitModalPreview = useCallback(() => {
     const scale = computeFitScale(modalContainerRef.current, modalImageRef.current);
     const targetZoom = Math.min(Math.max(scale * 0.7, 0.5), 30);
     setModalZoom(targetZoom);
     setModalPan({ x: 0, y: 0 });
-  };
-
-  // Inisialisasi state validasi dengan nilai default dari AI
-  useEffect(() => {
-    if (data) {
-      const initialValidations = {};
-      data.crops.forEach(crop => {
-        initialValidations[crop.id] = {
-          shape: crop.aiShape, // Default sesuai AI
-          gram: crop.aiGram    // Default sesuai AI
-        };
-      });
-      setValidations(initialValidations);
-    }
-  }, [data]);
+  }, []);
 
   const handleValidationChange = (cropId, field, value) => {
     setValidations(prev => ({
@@ -83,6 +80,47 @@ const ValidationDetail = () => {
         [field]: value
       }
     }));
+  };
+
+  // --- HANDLER SETUJU HASIL AI ---
+  const handleAccept = (crop) => {
+    setValidations((prev) => ({
+      ...prev,
+      [crop.id]: {
+        ...prev[crop.id],
+        shape: prev[crop.id]?.shape || crop.aiShape,
+        gram: prev[crop.id]?.gram || crop.aiGram,
+        status: 'accepted'
+      }
+    }));
+  };
+
+  const handleReject = (crop) => {
+    setValidations((prev) => ({
+      ...prev,
+      [crop.id]: {
+        ...prev[crop.id],
+        shape: prev[crop.id]?.shape || crop.aiShape,
+        gram: prev[crop.id]?.gram || crop.aiGram,
+        status: 'rejected'
+      }
+    }));
+  };
+
+  // --- HANDLER SETUJUI SEMUA (BULK ACCEPT) ---
+  const handleAcceptAll = () => {
+    setValidations((prev) => {
+      const updated = { ...prev };
+      data.crops.forEach((crop) => {
+        if (updated[crop.id]?.status === 'pending') {
+          updated[crop.id] = {
+            ...updated[crop.id],
+            status: 'accepted'
+          };
+        }
+      });
+      return updated;
+    });
   };
 
   const openPreview = (crop) => {
@@ -160,12 +198,53 @@ const ValidationDetail = () => {
     if (showModal) {
       requestAnimationFrame(() => fitModalPreview());
     }
-  }, [showModal, activeCrop]);
+  }, [showModal, activeCrop, fitModalPreview]);
 
   if (!data) return <div>Data tidak ditemukan.</div>;
 
+  // --- LOGIKA STEPPER DOKTER (UPDATE) ---
+  const totalCrops = data.crops.length;
+  const cropsById = new Map(data.crops.map((crop) => [String(crop.id), crop]));
+  // Dihitung selesai jika ditolak, disetujui, atau diubah manual
+  const processedCrops = Object.keys(validations).filter((id) => {
+    const v = validations[id];
+    const crop = cropsById.get(String(id));
+    if (!v || !crop) return false;
+    return v.status === 'rejected' || v.status === 'accepted' || v.shape !== crop.aiShape || v.gram !== crop.aiGram;
+  }).length;
+  const unprocessedCrops = totalCrops - processedCrops;
+
+  let currentStep = 1; // Default di Step 1 (Validasi Visual)
+  if (processedCrops >= totalCrops && totalCrops > 0) {
+    currentStep = 2; // Lanjut ke Step 2 (Finalisasi)
+  }
+
+  const steps = [
+    { num: 1, label: 'Validasi Visual AI' },
+    { num: 2, label: 'Finalisasi Hasil' }
+  ];
+
+  // --- HANDLER FINALISASI DOKTER ---
+  const handleFinalizeValidation = () => {
+    // Pastikan semua sudah tervalidasi (sebagai safeguard tambahan)
+    if (processedCrops < totalCrops) {
+      alert('Mohon periksa dan validasi seluruh hasil klasifikasi sebelum memfinalisasi.');
+      return;
+    }
+
+    // Simulasi proses menyimpan ke database (Catatan + Hasil Validasi)
+    console.log('Data Disimpan:', {
+      pasienId: data.id_pasien,
+      catatan: doctorNotes,
+      hasilValidasi: validations
+    });
+
+    // Arahkan kembali ke halaman daftar validasi
+    navigate('/doctor/validation');
+  };
+
   return (
-    <div className="max-w-7xl mx-auto pb-20 space-y-6">
+    <div className="max-w-7xl mx-auto pb-20 space-y-4 md:space-y-6 px-2 md:px-0">
       
       {/* HEADER */}
       <div className="flex items-center gap-4">
@@ -174,6 +253,47 @@ const ValidationDetail = () => {
         </button>
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Validasi Hasil</h1>
+        </div>
+      </div>
+
+      {/* --- UI STEPPER DOKTER --- */}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 hidden md:flex items-center justify-between w-full">
+        {steps.map((step, index) => (
+          <React.Fragment key={step.num}>
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-colors ${
+                currentStep > step.num
+                  ? 'bg-green-500 text-white'
+                  : currentStep === step.num
+                    ? 'bg-blue-600 text-white ring-4 ring-blue-100'
+                    : 'bg-slate-100 text-slate-400'
+              }`}>
+                {currentStep > step.num ? <CheckCircle size={18} /> : step.num}
+              </div>
+              <span className={`text-sm font-semibold ${currentStep >= step.num ? 'text-slate-800' : 'text-slate-400'}`}>
+                {step.label}
+              </span>
+            </div>
+            {index < steps.length - 1 && (
+              <div className={`flex-1 h-1 mx-4 rounded-full ${currentStep > step.num ? 'bg-green-500' : 'bg-slate-100'}`}></div>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* Mobile Stepper */}
+      <div className="md:hidden bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
+            {currentStep}
+          </div>
+          <div>
+            <p className="text-xs text-slate-500 font-medium">Langkah {currentStep} dari 2</p>
+            <p className="text-sm font-bold text-slate-800">{steps[currentStep - 1]?.label}</p>
+          </div>
+        </div>
+        <div className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+          Progres: {processedCrops}/{totalCrops}
         </div>
       </div>
 
@@ -209,21 +329,16 @@ const ValidationDetail = () => {
           </div>
         </div>
 
-        {/* CARD 2: CATATAN DOKTER (Mengambil sisa space di row ini jika ada, atau full di mobile) */}
+        {/* CARD 2: CATATAN DOKTER */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col md:col-span-2">
           <h3 className="font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4">Catatan Dokter</h3>
           <textarea 
             className="flex-1 w-full p-4 border border-slate-200 rounded-lg bg-slate-50 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-            placeholder="Tambahkan catatan klinis atau observasi tambahan di sini..."
+            placeholder="Tambahkan catatan..."
             rows={8}
             value={doctorNotes}
             onChange={(e) => setDoctorNotes(e.target.value)}
           />
-          <div className="mt-4 flex justify-end">
-            <button className="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors flex items-center gap-2">
-              <Save size={16} /> Simpan Catatan
-            </button>
-          </div>
         </div>
       </div>
 
@@ -231,14 +346,35 @@ const ValidationDetail = () => {
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         
         {/* Header Card Tabel */}
-        <div className="p-6 border-b border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50/50">
-          <h3 className="font-bold text-slate-800 text-lg">Hasil Klasifikasi Gram Stain</h3>
-          <button 
-            onClick={() => alert("Seluruh hasil divalidasi dan disimpan!")}
-            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-bold shadow-md hover:bg-blue-700 active:scale-95 transition-all flex items-center gap-2"
-          >
-            <Check size={18} /> Validasi Hasil
-          </button>
+        <div className="p-4 md:p-6 border-b border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50/50">
+          <div>
+            <h3 className="font-bold text-slate-800 text-lg">Hasil Klasifikasi Gram Stain</h3>
+            <p className="text-xs text-slate-500 mt-1">Periksa semua baris sebelum memfinalisasi hasil.</p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+            {currentStep < 2 && unprocessedCrops > 0 && (
+              <button
+                onClick={handleAcceptAll}
+                className="px-4 py-2.5 rounded-lg font-semibold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-all flex items-center justify-center gap-2"
+              >
+                <Check size={18} />
+                {processedCrops === 0 ? 'Setujui Semua Hasil AI' : `Setujui ${unprocessedCrops} Sisa Hasil`}
+              </button>
+            )}
+
+            <button
+              onClick={handleFinalizeValidation}
+              disabled={currentStep < 2}
+              className={`px-6 py-2.5 rounded-lg font-bold shadow-md transition-all flex items-center justify-center gap-2 ${
+                currentStep < 2
+                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                  : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
+              }`}
+            >
+              <CheckCircle size={18} /> Simpan & Finalisasi
+            </button>
+          </div>
         </div>
 
         {/* Tabel */}
@@ -259,13 +395,14 @@ const ValidationDetail = () => {
                 // State Check
                 const currentVal = validations[crop.id] || {};
                 const isRejected = currentVal.status === 'rejected';
+                const isAccepted = currentVal.status === 'accepted';
                 const isModified = !isRejected && (currentVal.shape !== crop.aiShape || currentVal.gram !== crop.aiGram);
 
                 return (
                   <tr 
                     key={crop.id} 
                     className={`transition-all duration-200 ${
-                      isRejected ? 'bg-slate-50 opacity-60' : isModified ? 'bg-blue-50/40' : 'hover:bg-slate-50'
+                      isRejected ? 'bg-slate-50 opacity-60 line-through' : isModified ? 'bg-blue-50/40' : 'hover:bg-slate-50'
                     }`}
                   >
                     {/* No */}
@@ -365,7 +502,7 @@ const ValidationDetail = () => {
                       </div>
                     </td>
 
-                    {/* Aksi (Revisi: Reject & Undo) */}
+                    {/* Aksi (Accept + Reject) */}
                     <td className="p-4">
                       <div className="flex items-center justify-center gap-2">
                         <button 
@@ -381,26 +518,32 @@ const ValidationDetail = () => {
                         </button>
 
                         <div className="w-px h-5 bg-slate-200 mx-1"></div>
-                        
-                        {isRejected ? (
-                          // Tombol Undo (Jika sudah reject)
-                          <button 
-                            onClick={() => handleValidationChange(crop.id, 'status', 'active')} 
-                            className="p-2 text-slate-500 hover:text-green-600 hover:bg-green-50 rounded-full transition-colors" 
-                            title="Batalkan Tolak (Pulihkan)"
-                          >
-                            <RefreshCw size={18} />
-                          </button>
-                        ) : (
-                          // Tombol Reject (Jika aktif)
-                          <button 
-                            onClick={() => handleValidationChange(crop.id, 'status', 'rejected')} 
-                            className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors" 
-                            title="Hapus / Tolak Baris Ini"
-                          >
-                            <X size={18} strokeWidth={2.5} />
-                          </button>
-                        )}
+
+                        {/* Tombol Setuju (Centang) */}
+                        <button
+                          onClick={() => handleAccept(crop)}
+                          title="Hasil AI Sesuai"
+                          className={`p-2 rounded-lg transition-all ${
+                            isAccepted
+                              ? 'bg-green-500 text-white shadow-md'
+                              : 'bg-green-50 text-green-600 hover:bg-green-100'
+                          }`}
+                        >
+                          <Check size={18} />
+                        </button>
+
+                        {/* Tombol Tolak (X) */}
+                        <button
+                          onClick={() => handleReject(crop)}
+                          title="Tolak Hasil"
+                          className={`p-2 rounded-lg transition-all ${
+                            isRejected
+                              ? 'bg-red-500 text-white shadow-md'
+                              : 'bg-red-50 text-red-600 hover:bg-red-100'
+                          }`}
+                        >
+                          <X size={18} strokeWidth={2.5} />
+                        </button>
                       </div>
                     </td>
                   </tr>

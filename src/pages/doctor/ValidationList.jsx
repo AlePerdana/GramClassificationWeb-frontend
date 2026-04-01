@@ -177,9 +177,9 @@ const ValidationList = () => {
                     <td className="p-5 text-center">
                       <button 
                         onClick={() => handleValidate(patient.id)}
-                        className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
+                        className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
                       >
-                        Periksa
+                        Validasi
                       </button>
                     </td>
 

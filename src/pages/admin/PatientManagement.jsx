@@ -1,102 +1,157 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   Search, 
   Plus, 
-  Filter, 
-  Edit, 
-  Trash2, 
-  User, 
-  FileText,
-  X
+  X,
+  Edit,
+  Trash2
 } from 'lucide-react';
 
-// --- DUMMY DATA ---
-const initialPatients = [
-  { id: 1, name: 'Budi Santoso', sampleCode: 'SPL-2026-001', age: 45, gender: 'L', status: 'Menunggu Sampel', date: '27 Jan 2026, 09:00' },
-  { id: 2, name: 'Siti Aminah', sampleCode: 'SPL-2026-002', age: 32, gender: 'P', status: 'Selesai Klasifikasi', date: '27 Jan 2026, 10:30' },
-  { id: 3, name: 'Rudi Hartono', sampleCode: 'SPL-2026-003', age: 28, gender: 'L', status: 'Tervalidasi', date: '26 Jan 2026, 14:15' },
-  { id: 4, name: 'Dewi Sartika', sampleCode: 'SPL-2026-004', age: 50, gender: 'P', status: 'Menunggu Sampel', date: '27 Jan 2026, 11:45' },
-];
-
 const PatientManagement = () => {
-  // State
-  const [patients, setPatients] = useState(initialPatients);
+  // --- STATE API ---
+  const [patients, setPatients] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
-  const [formData, setFormData] = useState({ name: '', age: '', gender: 'L', sampleCode: '' });
-  const [isEditing, setIsEditing] = useState(false);
-  const [currentId, setCurrentId] = useState(null);
-
-  // --- TAMBAHAN BARU ---
-  const [filterStatus, setFilterStatus] = useState('Semua'); // Pilihan status aktif
-
-  // Filter Logic (Diperbarui)
-  const filteredPatients = patients.filter(p => {
-    // 1. Filter Teks (Nama/Kod)
-    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          p.sampleCode.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    // 2. Filter Kategori (Status)
-    const matchesStatus = filterStatus === 'Semua' || p.status === filterStatus;
-
-    return matchesSearch && matchesStatus;
+  const [formData, setFormData] = useState({
+    nama_lengkap: '',
+    jenis_kelamin: 'Laki-Laki',
+    tanggal_lahir: '',
+    alamat: '',
+    no_telepon: ''
   });
 
-  // Status Badge Component
-  const StatusBadge = ({ status }) => {
-    let colorClass = '';
-    switch (status) {
-      case 'Menunggu Sampel': colorClass = 'bg-gray-100 text-gray-600'; break;
-      case 'Selesai Klasifikasi': colorClass = 'bg-blue-100 text-blue-600'; break;
-      case 'Tervalidasi': colorClass = 'bg-green-100 text-green-600'; break;
-      default: colorClass = 'bg-gray-100 text-gray-600';
+  // --- STATE UNTUK EDIT ---
+  const [isEditing, setIsEditing] = useState(false);
+  const [editId, setEditId] = useState(null);
+
+  // URL Base Backend
+  const API_BASE_URL = 'http://localhost:8000/api';
+
+  // Filter Logic
+  const filteredPatients = patients.filter(p => {
+    const name = (p.nama_lengkap || '').toLowerCase();
+    const code = (p.id_pasien || '').toLowerCase();
+    return name.includes(searchTerm.toLowerCase()) || code.includes(searchTerm.toLowerCase());
+  });
+
+  // --- 1. MENGAMBIL DATA PASIEN (GET) ---
+  const fetchPatients = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/patients`);
+      if (response.ok) {
+        const data = await response.json();
+        setPatients(Array.isArray(data) ? data : []);
+      } else {
+        console.error('Gagal mengambil data pasien');
+      }
+    } catch (error) {
+      console.error('Error fetching patients:', error);
+    } finally {
+      setIsLoading(false);
     }
-    return (
-      <span className={`px-3 py-1 rounded-full text-xs font-bold ${colorClass}`}>
-        {status}
-      </span>
-    );
   };
 
-  // --- HANDLERS ---
-
-  const handleEditClick = (patient) => {
-    setFormData({
-      name: patient.name,
-      age: patient.age,
-      gender: patient.gender === 'Laki-laki' ? 'L' : patient.gender === 'Perempuan' ? 'P' : patient.gender,
-      sampleCode: patient.sampleCode
-    });
-    setIsEditing(true);
-    setCurrentId(patient.id);
-    setShowModal(true);
-  };
+  useEffect(() => {
+    fetchPatients();
+  }, []);
 
   const handleAddClick = () => {
-    setFormData({ name: '', age: '', gender: 'L', sampleCode: '' });
     setIsEditing(false);
-    setCurrentId(null);
+    setEditId(null);
+    setFormData({
+      nama_lengkap: '',
+      jenis_kelamin: 'Laki-Laki',
+      tanggal_lahir: '',
+      alamat: '',
+      no_telepon: ''
+    });
     setShowModal(true);
   };
 
-  const handleSavePatient = (e) => {
+  // --- 3. MENGEDIT DATA PASIEN (Persiapan Modal) ---
+  const handleEditClick = (patient) => {
+    setFormData({
+      nama_lengkap: patient.nama_lengkap || '',
+      jenis_kelamin: patient.jenis_kelamin || 'Laki-Laki',
+      tanggal_lahir: patient.tanggal_lahir || '',
+      alamat: patient.alamat || '',
+      no_telepon: patient.no_telepon || ''
+    });
+    setEditId(patient.id || patient.id_pasien);
+    setIsEditing(true);
+    setShowModal(true);
+  };
+
+  // Handler Submit Form (Gabungan Add & Edit)
+  const handleSubmit = async (e) => {
     e.preventDefault();
+
     if (isEditing) {
-      setPatients(patients.map(p => p.id === currentId ? { ...p, ...formData } : p));
-    } else {
-      const newPatient = {
-        id: patients.length + 1,
-        ...formData,
-        status: 'Menunggu Sampel',
-        date: new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-      };
-      setPatients([newPatient, ...patients]);
+      alert(`Simulasi Update Data Pasien ID: ${editId}`);
+      setShowModal(false);
+      setIsEditing(false);
+      setEditId(null);
+      setFormData({
+        nama_lengkap: '',
+        jenis_kelamin: 'Laki-Laki',
+        tanggal_lahir: '',
+        alamat: '',
+        no_telepon: ''
+      });
+      return;
     }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/patients`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData)
+      });
+
+      if (response.status === 201 || response.ok) {
+        alert('Pasien berhasil ditambahkan!');
+        setShowModal(false);
+        setFormData({
+          nama_lengkap: '',
+          jenis_kelamin: 'Laki-Laki',
+          tanggal_lahir: '',
+          alamat: '',
+          no_telepon: ''
+        });
+        fetchPatients();
+      } else {
+        const errorData = await response.json();
+        alert(`Gagal menambah pasien: ${JSON.stringify(errorData)}`);
+      }
+    } catch (error) {
+      console.error('Error adding patient:', error);
+      alert('Terjadi kesalahan jaringan.');
+    }
+  };
+
+  // --- 4. MENGHAPUS DATA PASIEN ---
+  const handleDelete = (id, name) => {
+    if (window.confirm(`Apakah Anda yakin ingin menghapus data pasien ${name}?`)) {
+      alert(`Simulasi Hapus Pasien ID: ${id}`);
+    }
+  };
+
+  const handleCloseModal = () => {
     setShowModal(false);
     setIsEditing(false);
-    setCurrentId(null);
-    setFormData({ name: '', age: '', gender: 'L', sampleCode: '' });
+    setEditId(null);
+    setFormData({
+      nama_lengkap: '',
+      jenis_kelamin: 'Laki-Laki',
+      tanggal_lahir: '',
+      alamat: '',
+      no_telepon: ''
+    });
   };
 
   return (
@@ -131,82 +186,47 @@ const PatientManagement = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          {/* Bahagian Toolbar Filter (selaras dengan tren) */}
-          <div className="flex gap-2 relative">
-            <Filter size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-            <select 
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer hover:bg-gray-100 transition-colors"
-            >
-              {['Semua', 'Menunggu Sampel', 'Selesai Klasifikasi', 'Tervalidasi'].map((status) => (
-                <option key={status} value={status}>{status}</option>
-              ))}
-            </select>
-          </div>
         </div>
 
         {/* Table Content */}
         <div className="w-full overflow-x-auto pb-4 custom-scrollbar">
-          <table className="w-full text-center border-collapse whitespace-nowrap min-w-[900px]">
+          <table className="w-full text-center border-collapse">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wide text-center">
-                <th className="p-5 text-center">Tanggal Masuk</th>
-                <th className="p-5 text-center">Nama Pasien</th>
-                <th className="p-5 text-center">Kode Sampel</th> 
-                <th className="p-5 text-center">Identitas</th>
-                <th className="p-5 text-center">Status</th>
-                <th className="p-5 text-center">Aksi</th> 
+                <th className="p-4 text-left pl-6">Identitas Pasien</th>
+                <th className="p-4 text-center">Jenis Kelamin</th>
+                <th className="p-4 text-center">Tanggal Lahir</th>
+                <th className="p-4 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 text-sm">
-              {filteredPatients.length > 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan="4" className="p-10 text-center text-gray-400">Memuat data pasien...</td>
+                </tr>
+              ) : filteredPatients.length > 0 ? (
                 filteredPatients.map((patient) => (
-                  <tr key={patient.id} className="hover:bg-blue-50/30 transition-colors group">
-                    {/* Tanggal */}
-                    <td className="p-5 text-center">
-                      <div className="flex items-center justify-center gap-2 text-gray-600 font-medium">
-                        <span>{patient.date}</span>
-                      </div>
+                  <tr key={patient.id_pasien || patient.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4 text-left pl-6 whitespace-nowrap">
+                      <div className="font-bold text-slate-800">{patient.nama_lengkap}</div>
+                      <div className="text-xs font-mono text-slate-500 mt-0.5">{patient.id_pasien}</div>
                     </td>
-
-                    {/* Pasien */}
-                    <td className="p-5 text-center">
-                      <div className="flex items-center justify-center gap-3">
-                        <div>
-                          <p className="font-bold text-gray-800">{patient.name}</p>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Kode Sampel */}
-                    <td className="p-5 text-center">
-                      <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-mono font-medium border border-gray-200">
-                        {patient.sampleCode}
-                      </span>
-                    </td>
-
-                    {/* Identitas (Gender & Umur) */}
-                    <td className="p-5 text-center text-sm text-gray-600">
+                    <td className="p-4 text-center">{patient.jenis_kelamin}</td>
+                    <td className="p-4 text-center">{patient.tanggal_lahir}</td>
+                    <td className="p-4 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        <span className="font-medium text-gray-700">{patient.gender === 'L' ? 'Laki-laki' : 'Perempuan'}</span>
-                        <span className="text-gray-400">•</span>
-                        <span className="text-gray-500">{patient.age} Th</span>
-                      </div>
-                    </td>
-
-                    {/* Status */}
-                    <td className="p-5 text-center">
-                      <StatusBadge status={patient.status} />
-                    </td>
-
-                    {/* Aksi */}
-                    <td className="p-5 text-center">
-                      <div className="flex justify-center gap-2">
-                        <button onClick={() => handleEditClick(patient)} className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg tooltip transition-colors" title="Edit">
+                        <button
+                          onClick={() => handleEditClick(patient)}
+                          className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg tooltip transition-colors"
+                          title="Edit Pasien"
+                        >
                           <Edit size={16} />
                         </button>
-                        <button className="p-2 text-red-600 hover:bg-red-50 rounded-lg tooltip transition-colors" title="Hapus">
+                        <button
+                          onClick={() => handleDelete(patient.id || patient.id_pasien, patient.nama_lengkap)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg tooltip transition-colors"
+                          title="Hapus Pasien"
+                        >
                           <Trash2 size={16} />
                         </button>
                       </div>
@@ -215,7 +235,7 @@ const PatientManagement = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan="6" className="p-10 text-center text-gray-400">
+                  <td colSpan="4" className="p-10 text-center text-gray-400">
                     Tidak ada data pasien ditemukan.
                   </td>
                 </tr>
@@ -240,67 +260,68 @@ const PatientManagement = () => {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg md:max-w-xl max-h-[90vh] overflow-y-auto flex flex-col">
             {/* Modal Header */}
             <div className="sticky top-0 z-10 p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h3 className="font-bold text-lg text-gray-800">{isEditing ? 'Edit Data Pasien' : 'Registrasi Pasien Baru'}</h3>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600">
+              <h3 className="font-bold text-lg text-gray-800">{isEditing ? 'Edit Data Pasien' : 'Tambah Pasien Baru'}</h3>
+              <button onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600">
                 <X size={20} />
               </button>
             </div>
             
             {/* Modal Form */}
-            <form onSubmit={handleSavePatient} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 gap-4">
+                <div>
                   <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Nama Lengkap</label>
-                  <div className="relative">
-                    <User size={16} className="absolute left-3 top-3 text-gray-400" />
-                    <input 
-                      type="text" 
-                      required
-                      className="w-full pl-9 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                      placeholder="Masukkan nama pasien"
-                      value={formData.name}
-                      onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    />
-                  </div>
-                </div>
-
-                <div className="col-span-1">
-                  <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Kode Sampel</label>
-                  <div className="relative">
-                    <FileText size={16} className="absolute left-3 top-3 text-gray-400" />
-                    <input 
-                      type="text" 
-                      required
-                      className="w-full pl-9 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-mono"
-                      placeholder="SPL-YYYY-XXX"
-                      value={formData.sampleCode}
-                      onChange={(e) => setFormData({...formData, sampleCode: e.target.value})}
-                    />
-                  </div>
-                </div>
-
-                <div className="col-span-1">
-                  <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Umur</label>
-                  <input 
-                    type="number" 
+                  <input
+                    type="text"
                     required
                     className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                    placeholder="Contoh: 30"
-                    value={formData.age}
-                    onChange={(e) => setFormData({...formData, age: e.target.value})}
+                    placeholder="Masukkan nama pasien"
+                    value={formData.nama_lengkap}
+                    onChange={(e) => setFormData({ ...formData, nama_lengkap: e.target.value })}
                   />
                 </div>
 
-                <div className="col-span-1">
+                <div>
                   <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Jenis Kelamin</label>
-                  <select 
+                  <select
                     className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
-                    value={formData.gender}
-                    onChange={(e) => setFormData({...formData, gender: e.target.value})}
+                    value={formData.jenis_kelamin}
+                    onChange={(e) => setFormData({ ...formData, jenis_kelamin: e.target.value })}
                   >
-                    <option value="L">Laki-laki</option>
-                    <option value="P">Perempuan</option>
+                    <option value="Laki-Laki">Laki-Laki</option>
+                    <option value="Perempuan">Perempuan</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Tanggal Lahir</label>
+                  <input
+                    type="date"
+                    required
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                    value={formData.tanggal_lahir}
+                    onChange={(e) => setFormData({ ...formData, tanggal_lahir: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Alamat</label>
+                  <textarea
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                    rows={3}
+                    value={formData.alamat}
+                    onChange={(e) => setFormData({ ...formData, alamat: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase block mb-1">No. Telepon</label>
+                  <input
+                    type="text"
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                    value={formData.no_telepon}
+                    onChange={(e) => setFormData({ ...formData, no_telepon: e.target.value })}
+                  />
                 </div>
               </div>
 
@@ -308,7 +329,7 @@ const PatientManagement = () => {
               <div className="pt-4 flex gap-3">
                 <button 
                   type="button" 
-                  onClick={() => setShowModal(false)}
+                  onClick={handleCloseModal}
                   className="flex-1 py-2.5 border border-gray-300 rounded-lg text-gray-600 font-medium hover:bg-gray-50"
                 >
                   Batal

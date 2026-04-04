@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Search, 
   Filter, 
@@ -10,31 +10,48 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-// --- DUMMY DATA (Sinkron dengan data Admin) ---
-const initialPatients = [
-  { id: 1, name: 'Budi Santoso', sampleCode: 'SPL-2026-001', gender: 'L', age: 45, date: '27 Jan 2026, 09:00', status: 'Menunggu Sampel', priority: 'High' },
-  { id: 4, name: 'Dewi Sartika', sampleCode: 'SPL-2026-004', gender: 'P', age: 50, date: '27 Jan 2026, 10:15', status: 'Menunggu Sampel', priority: 'Normal' },
-  // Pasien yang sudah selesai tidak perlu muncul di tab utama, atau bisa difilter
-  { id: 2, name: 'Siti Aminah', sampleCode: 'SPL-2026-002', gender: 'P', age: 32, date: '26 Jan 2026, 08:30', status: 'Selesai Klasifikasi', priority: 'Low' },
-];
-
 const AnalystPatientList = () => {
   const navigate = useNavigate();
+  const [patients, setPatients] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('Menunggu Sampel'); // Default ke tugas yang belum selesai
 
+  useEffect(() => {
+    const fetchPatients = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/patients');
+        if (response.ok) {
+          const data = await response.json();
+          setPatients(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        console.error('Gagal mengambil data pasien:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPatients();
+  }, []);
+
   // Filter Logic
-  const filteredPatients = initialPatients.filter(p => {
-    const matchSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                        p.sampleCode.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchStatus = filterStatus === 'Semua' || p.status === filterStatus;
+  const filteredPatients = patients.filter((p) => {
+    const patientName = (p.nama_lengkap || p.name || '').toLowerCase();
+    const sampleCode = (p.id_pasien || p.sampleCode || '').toLowerCase();
+    const patientStatus = p.status || 'Menunggu Sampel';
+
+    const matchSearch =
+      patientName.includes(searchTerm.toLowerCase()) ||
+      sampleCode.includes(searchTerm.toLowerCase());
+    const matchStatus = filterStatus === 'Semua' || patientStatus === filterStatus;
     return matchSearch && matchStatus;
   });
 
   // Handler untuk menuju halaman Upload/Proses
   const handleProcess = (patientId) => {
     // Navigasi ke halaman detail klasifikasi (akan kita buat setelah ini)
-    navigate(`/analyst/classification/${patientId}`);
+    navigate(`/analyst/process/${patientId}`);
   };
 
   return (
@@ -92,20 +109,24 @@ const AnalystPatientList = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filteredPatients.length > 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan="5" className="p-10 text-center text-gray-400">Memuat data pasien...</td>
+                </tr>
+              ) : filteredPatients.length > 0 ? (
                 filteredPatients.map((patient) => (
-                  <tr key={patient.id} className="hover:bg-blue-50/30 transition-colors group">
+                  <tr key={patient.id || patient.id_pasien} className="hover:bg-blue-50/30 transition-colors group">
                     {/* Tanggal */}
                     <td className="p-5 text-center">
                       <div className="flex items-center justify-center gap-2 text-gray-600 font-medium">
-                        <span>{patient.date}</span>
+                        <span>{patient.date || '-'}</span>
                       </div>
                     </td>
 
                     {/* Kode Sampel */}
                     <td className="p-5 text-center">
                       <span className="font-mono font-medium text-gray-700 bg-gray-100 px-2 py-1 rounded text-xs border border-gray-200">
-                        {patient.sampleCode}
+                        {patient.id_pasien || patient.sampleCode || '-'}
                       </span>
                     </td>
 
@@ -113,28 +134,33 @@ const AnalystPatientList = () => {
                     <td className="p-5 text-center">
                       <div className="flex items-center justify-center gap-3">
                         <div>
-                          <p className="font-bold text-gray-800 text-sm">{patient.name}</p>
-                          <p className="text-xs text-gray-500">{patient.gender === 'L' ? 'Laki-laki' : 'Perempuan'} - {patient.age} Th</p>
+                          <p className="font-bold text-gray-800 text-sm">{patient.nama_lengkap || patient.name}</p>
+                          <p className="text-xs text-gray-500">{patient.jenis_kelamin || (patient.gender === 'L' ? 'Laki-laki' : 'Perempuan')}</p>
                         </div>
                       </div>
                     </td>
 
                     {/* Status Badge */}
                     <td className="p-5 text-center">
+                      {(() => {
+                        const patientStatus = patient.status || 'Menunggu Sampel';
+                        return (
                       <span className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center ${
-                        patient.status === 'Menunggu Sampel' 
+                        patientStatus === 'Menunggu Sampel' 
                           ? 'bg-yellow-50 text-yellow-700 border border-yellow-100' 
                           : 'bg-green-50 text-green-700 border border-green-100'
                       }`}>
-                        {patient.status}
+                        {patientStatus}
                       </span>
+                        );
+                      })()}
                     </td>
 
                     {/* Tombol Aksi (Paling Penting) */}
                     <td className="p-5 text-center">
-                      {patient.status === 'Menunggu Sampel' ? (
+                      {(patient.status || 'Menunggu Sampel') === 'Menunggu Sampel' ? (
                         <button 
-                          onClick={() => handleProcess(patient.id)}
+                          onClick={() => handleProcess(patient.id || patient.id_pasien)}
                           className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
                         >
                           Proses
@@ -167,7 +193,7 @@ const AnalystPatientList = () => {
 
         {/* Footer Pagination (Static) */}
         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm text-gray-500">
-          <span>Menampilkan {filteredPatients.length} dari {initialPatients.length} data</span>
+          <span>Menampilkan {filteredPatients.length} dari {patients.length} data</span>
           <div className="flex gap-2">
             <button className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50" disabled>Sebelumnya</button>
             <button className="px-3 py-1 border border-gray-200 rounded bg-white hover:bg-gray-50">Berikutnya</button>

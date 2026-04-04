@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Search, Printer, Eye, Edit, Clock
+  Search, Clock
 } from 'lucide-react';
 
 // --- DUMMY DATA RIWAYAT ---
@@ -139,27 +139,13 @@ const History = () => {
 
                     {/* Kolom 4: Aksi */}
                     <td className="p-4 text-center">
-                      <div className="flex justify-center gap-2">
+                      <div className="flex items-center justify-center">
                         <button
-                          onClick={() => navigate(`/doctor/validation/${item.id}`)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Lihat Detail"
+                          onClick={() => navigate(`/doctor/history/${item.id}`)}
+                          className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
+                          title="Lihat Detail Riwayat"
                         >
-                          <Eye size={18} />
-                        </button>
-                        <button
-                          onClick={() => navigate(`/doctor/validation/${item.id}?edit=true`)}
-                          className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                          title="Edit Data"
-                        >
-                          <Edit size={18} />
-                        </button>
-                        <button
-                          onClick={() => navigate(`/doctor/report/${item.id}`)}
-                          className="p-2 text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 rounded-lg transition-colors"
-                          title="Cetak Hasil"
-                        >
-                          <Printer size={18} />
+                          Detail
                         </button>
                       </div>
                     </td>

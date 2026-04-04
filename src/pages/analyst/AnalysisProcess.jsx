@@ -7,19 +7,17 @@ import {
   Hand, MousePointer2
 } from 'lucide-react';
 
-// --- DUMMY DATA PASIEN ---
-const patientsDB = {
-  1: { id: 1, name: 'Budi Santoso', code: 'SPL-2026-001', nik: '357801220490001', gender: 'Laki-laki', age: 45 },
-  4: { id: 4, name: 'Dewi Sartika', code: 'SPL-2026-004', nik: '357801650185004', gender: 'Perempuan', age: 50 },
-};
-
 const AnalysisProcess = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const patient = patientsDB[id] || patientsDB[1];
+
+  const API_BASE_URL = 'http://localhost:8000/api';
 
   // --- STATE ---
+  const [patient, setPatient] = useState(null);
+  const [isPatientLoading, setIsPatientLoading] = useState(true);
   const [images, setImages] = useState([]); 
+  const [uploadedSpecimens, setUploadedSpecimens] = useState([]);
   const [activeImgIdx, setActiveImgIdx] = useState(0);
   const [hoveredRoiIndex, setHoveredRoiIndex] = useState(null);
   const [showFullPreview, setShowFullPreview] = useState(false);
@@ -32,13 +30,17 @@ const AnalysisProcess = () => {
   const [mode, setMode] = useState('view'); // 'view', 'drag', 'manual_crop', 'auto_detect'
   const [rois, setRois] = useState({}); 
   const [status, setStatus] = useState('idle');
+  const [isUploading, setIsUploading] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
   const [result, setResult] = useState(null);
+  const [imageMeta, setImageMeta] = useState({});
 
   // Interaction Refs & State
   const imgContainerRef = useRef(null);
-  const imgRef = useRef(null);
+  const imageElementRef = useRef(null);
   const modalImgRef = useRef(null);
   const modalImageRef = useRef(null);
+  const cleanupData = useRef({ isSubmitted: false, uploadedSpecimens: [] });
   const [isInteracting, setIsInteracting] = useState(false); // Drawing or Dragging
   const [startPos, setStartPos] = useState({ x: 0, y: 0 }); // Posisi awal mouse (Relatif terhadap image)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // Posisi awal mouse (Screen) untuk Panning
@@ -95,16 +97,103 @@ const AnalysisProcess = () => {
 
   // --- HANDLERS ---
 
-  const handleImageUpload = (e) => {
+  useEffect(() => {
+    const fetchPatientData = async () => {
+      setIsPatientLoading(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/patients`);
+        if (response.ok) {
+          const data = await response.json();
+          const numericId = Number(id);
+          const currentPatient = (Array.isArray(data) ? data : []).find((p) => {
+            const pid = Number(p.id ?? p.id_pasien);
+            return Number.isNaN(numericId) ? String(p.id ?? p.id_pasien) === String(id) : pid === numericId;
+          });
+          setPatient(currentPatient || null);
+        } else {
+          setPatient(null);
+          console.error('Gagal mengambil data pasien');
+        }
+      } catch (error) {
+        setPatient(null);
+        console.error('Gagal mengambil data pasien:', error);
+      } finally {
+        setIsPatientLoading(false);
+      }
+    };
+
+    fetchPatientData();
+  }, [API_BASE_URL, id]);
+
+  const handleImageUpload = async (e) => {
     const files = Array.from(e.target.files);
-    if (files.length > 0) {
-      const newImages = files.map(file => URL.createObjectURL(file));
-      setImages(prev => [...prev, ...newImages]);
+    if (files.length === 0) return;
+
+    // Validasi format file
+    const validTypes = ['image/jpeg', 'image/png', 'image/jpg'];
+    const invalidFiles = files.filter((file) => !validTypes.includes(file.type));
+
+    if (invalidFiles.length > 0) {
+      alert('Format file tidak valid! Harap hanya unggah gambar berformat JPG atau PNG.');
+      e.target.value = '';
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      const uploadedImageItems = [];
+
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('patient_id', id);
+        formData.append('file', file);
+
+        const response = await fetch(`${API_BASE_URL}/analysis/upload-specimen`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          console.error('Gagal upload specimen awal:', file.name);
+          continue;
+        }
+
+        const uploaded = await response.json();
+        const specimenId = uploaded.id ?? uploaded.specimen_id;
+        const previewUrl = URL.createObjectURL(file);
+
+        uploadedImageItems.push({
+          previewUrl,
+          specimenId,
+          fileName: file.name,
+        });
+
+        if (specimenId) {
+          setUploadedSpecimens((prev) => {
+            if (prev.find((s) => (s.id ?? s.specimen_id) === specimenId)) return prev;
+            return [...prev, { id: specimenId }];
+          });
+        }
+      }
+
+      if (uploadedImageItems.length === 0) {
+        alert('Tidak ada gambar yang berhasil diunggah ke server.');
+        return;
+      }
+
+      setImages((prev) => [...prev, ...uploadedImageItems]);
       setStatus('idle');
-      // Reset view saat upload baru
       setZoom(1);
       setPan({ x: 0, y: 0 });
       setMode('drag');
+      setIsSubmitted(false);
+    } catch (error) {
+      console.error('Error upload specimen awal:', error);
+      alert('Gagal mengunggah gambar ke server.');
+    } finally {
+      setIsUploading(false);
+      e.target.value = '';
     }
   };
 
@@ -195,6 +284,85 @@ const AnalysisProcess = () => {
     });
   };
 
+  const updateImageMeta = (index, imgEl) => {
+    if (!imgEl) return;
+    setImageMeta((prev) => ({
+      ...prev,
+      [index]: {
+        naturalW: imgEl.naturalWidth || 0,
+        naturalH: imgEl.naturalHeight || 0,
+        clientW: imgEl.clientWidth || 0,
+        clientH: imgEl.clientHeight || 0,
+      }
+    }));
+  };
+
+  // --- KONVERSI ROI DISPLAY -> ROI NATURAL IMAGE ---
+  const buildNaturalRois = (imageIdx) => {
+    const roisForImage = rois[imageIdx] || [];
+    if (roisForImage.length === 0) return [];
+
+    const activeMeta = imageMeta[imageIdx] || null;
+
+    const imageEl = imageIdx === activeImgIdx ? imageElementRef.current : null;
+
+    // 1) Ukuran elemen HTML dan ukuran asli image
+    const clientW = activeMeta?.clientW || imageEl?.clientWidth || 0;
+    const clientH = activeMeta?.clientH || imageEl?.clientHeight || 0;
+    const naturalW = activeMeta?.naturalW || imageEl?.naturalWidth || 0;
+    const naturalH = activeMeta?.naturalH || imageEl?.naturalHeight || 0;
+
+    if (!clientW || !clientH || !naturalW || !naturalH) return [];
+
+    // 2) Hitung area render aktual image (object-contain) + offset letterbox
+    const imgRatio = naturalW / naturalH;
+    const containerRatio = clientW / clientH;
+
+    let renderW;
+    let renderH;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    if (imgRatio > containerRatio) {
+      renderW = clientW;
+      renderH = clientW / imgRatio;
+      offsetY = (clientH - renderH) / 2;
+    } else {
+      renderH = clientH;
+      renderW = clientH * imgRatio;
+      offsetX = (clientW - renderW) / 2;
+    }
+
+    // 3) Skala dari area render ke resolusi asli
+    const scaleX = naturalW / renderW;
+    const scaleY = naturalH / renderH;
+
+    return roisForImage.map((roi, index) => {
+      const roiWidth = roi.width ?? roi.w ?? 0;
+      const roiHeight = roi.height ?? roi.h ?? 0;
+      const roiX = roi.x ?? 0;
+      const roiY = roi.y ?? 0;
+
+      let actualX = (roiX - offsetX) * scaleX;
+      let actualY = (roiY - offsetY) * scaleY;
+      let actualWidth = roiWidth * scaleX;
+      let actualHeight = roiHeight * scaleY;
+
+      actualX = Math.max(0, actualX);
+      actualY = Math.max(0, actualY);
+      actualWidth = Math.min(actualWidth, naturalW - actualX);
+      actualHeight = Math.min(actualHeight, naturalH - actualY);
+
+      return {
+        id: roi.id ?? index,
+        x: Math.round(actualX),
+        y: Math.round(actualY),
+        width: Math.round(Math.max(0, actualWidth)),
+        height: Math.round(Math.max(0, actualHeight)),
+      };
+    });
+  };
+
   // --- MOUSE EVENT HANDLERS (CORE LOGIC) ---
   
   // Helper: Dapatkan koordinat mouse relatif terhadap gambar (memperhitungkan zoom & pan)
@@ -258,7 +426,7 @@ const AnalysisProcess = () => {
         const currentRois = rois[activeImgIdx] || [];
         setRois({
           ...rois,
-          [activeImgIdx]: [...currentRois, { ...currentBox, label: 'Manual' }]
+          [activeImgIdx]: [...currentRois, { id: `manual-${Date.now()}-${currentRois.length}`, ...currentBox, label: 'Manual', status: 'pending' }]
         });
       }
       setCurrentBox(null);
@@ -296,57 +464,286 @@ const AnalysisProcess = () => {
     }
   };
 
-  // Auto Detect Dummy (append, non-destructive)
-  const handleAutoDetect = () => {
+  // --- FUNGSI AUTO CROP (YOLO DETECTION) ---
+  const handleAutoDetect = async () => {
+    if (images.length === 0) {
+      alert('Harap unggah gambar terlebih dahulu!');
+      return;
+    }
+
+    const activeImage = images[activeImgIdx];
+    const specimenId = activeImage?.specimenId;
+    if (!specimenId) {
+      alert('Specimen ID untuk gambar aktif tidak ditemukan. Silakan upload ulang.');
+      return;
+    }
+
     setMode('auto_detect');
-    // Simulasi loading
-    setTimeout(() => {
-      const activeImageEl = imgRef.current || modalImageRef.current;
-      const imgW = activeImageEl?.naturalWidth || activeImageEl?.width || 1200;
-      const imgH = activeImageEl?.naturalHeight || activeImageEl?.height || 800;
+    setStatus('auto_detecting');
 
-      // ROI lebih besar dan tersebar di beberapa area citra
-      const roiTemplate = [
-        { x: 0.08, y: 0.12, w: 0.18, h: 0.14 },
-        { x: 0.34, y: 0.18, w: 0.16, h: 0.12 },
-        { x: 0.62, y: 0.10, w: 0.17, h: 0.15 },
-        { x: 0.18, y: 0.52, w: 0.20, h: 0.16 },
-        { x: 0.55, y: 0.58, w: 0.19, h: 0.14 },
-      ];
+    try {
+      const response = await fetch(`${API_BASE_URL}/analysis/detect/${specimenId}`, {
+        method: 'POST'
+      });
 
-      const dummyAutoRois = roiTemplate.map((r) => ({
-        x: Math.round(imgW * r.x),
-        y: Math.round(imgH * r.y),
-        w: Math.max(60, Math.round(imgW * r.w)),
-        h: Math.max(45, Math.round(imgH * r.h)),
-        label: 'Auto'
-      }));
-      
-      setRois(prev => {
-        const currentRois = prev[activeImgIdx] || [];
-        return { 
-          ...prev, 
-          [activeImgIdx]: [...currentRois, ...dummyAutoRois] 
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        console.error('YOLO Error Payload:', errData);
+        alert('Gagal memproses gambar otomatis. Pastikan AI backend menyala.');
+        return;
+      }
+
+      const data = await response.json();
+      const results = Array.isArray(data?.results)
+        ? data.results
+        : (Array.isArray(data?.detections) ? data.detections : []);
+
+      if (results.length === 0) {
+        alert('YOLO tidak menemukan objek pada gambar ini.');
+        return;
+      }
+
+      // Konversi koordinat backend (natural image px) -> koordinat display frontend
+      const imageEl = imageElementRef.current;
+      const naturalW = imageEl?.naturalWidth || 1;
+      const naturalH = imageEl?.naturalHeight || 1;
+      const displayW = imageEl?.clientWidth || naturalW;
+      const displayH = imageEl?.clientHeight || naturalH;
+      const scaleToDisplayX = displayW / naturalW;
+      const scaleToDisplayY = displayH / naturalH;
+
+      // 4. Konversi data API ke dalam format Bounding Box Frontend
+      const detectedRois = results.map((item, index) => {
+        const bbox = Array.isArray(item?.bbox) ? item.bbox : [0, 0, 0, 0];
+
+        // API mereturn [x1, y1, x2, y2]
+        const x1 = Number(bbox[0] ?? 0);
+        const y1 = Number(bbox[1] ?? 0);
+        const x2 = Number(bbox[2] ?? 0);
+        const y2 = Number(bbox[3] ?? 0);
+
+        const width = Math.max(0, x2 - x1);
+        const height = Math.max(0, y2 - y1);
+
+        // Ubah ke sistem koordinat gambar yang sedang dirender di layar
+        const displayX = x1 * scaleToDisplayX;
+        const displayY = y1 * scaleToDisplayY;
+        const displayWidth = width * scaleToDisplayX;
+        const displayHeight = height * scaleToDisplayY;
+
+        return {
+          id: `yolo-${Date.now()}-${index}`,
+          x: displayX,
+          y: displayY,
+          width: displayWidth,
+          height: displayHeight,
+          status: 'pending',
+          label: 'Auto',
+          confidence: item.yolo_confidence ?? item.confidence,
         };
       });
-    }, 600);
+
+      setRois((prev) => {
+        const current = prev[activeImgIdx] || [];
+        return {
+          ...prev,
+          [activeImgIdx]: [...current, ...detectedRois]
+        };
+      });
+    } catch (error) {
+      console.error('YOLO Fetch Error:', error);
+      alert('Terjadi kesalahan jaringan saat menghubungi server AI.');
+    } finally {
+      setStatus('idle');
+      setMode('drag');
+    }
   };
 
-  const handleClassify = () => {
-    setStatus('classifying');
-    setTimeout(() => {
-      setStatus('done');
+  // PROSES KLASIFIKASI MANUAL/BATCH
+  const handleStartClassification = async () => {
+    if (images.length === 0) {
+      alert('Harap unggah gambar terlebih dahulu.');
+      return;
+    }
+
+    const imagesWithoutRoi = images
+      .map((_, idx) => ({ idx, count: (rois[idx] || []).length }))
+      .filter((x) => x.count === 0);
+
+    if (imagesWithoutRoi.length > 0) {
+      alert(`Masih ada ${imagesWithoutRoi.length} gambar tanpa Bounding Box. Lengkapi semua gambar sebelum klasifikasi.`);
+      return;
+    }
+
+    setStatus('analyzing');
+
+    try {
+      const aggregatedResults = [];
+      let nextRoisState = { ...rois };
+
+      for (let idx = 0; idx < images.length; idx += 1) {
+        const specimenId = images[idx]?.specimenId;
+        if (!specimenId) {
+          throw new Error(`Specimen ID gambar ke-${idx + 1} tidak ditemukan`);
+        }
+
+        const naturalRois = buildNaturalRois(idx);
+        if (!naturalRois.length) {
+          throw new Error(`ROI gambar ke-${idx + 1} tidak valid`);
+        }
+
+        const classifyResponse = await fetch(`${API_BASE_URL}/analysis/classify/${specimenId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rois: naturalRois }),
+        });
+
+        if (!classifyResponse.ok) {
+          const err = await classifyResponse.json().catch(() => ({}));
+          throw new Error(err?.detail || `Gagal klasifikasi ROI gambar ke-${idx + 1}`);
+        }
+
+        const classifyData = await classifyResponse.json();
+        const aiResults = Array.isArray(classifyData?.results) ? classifyData.results : [];
+        aggregatedResults.push(...aiResults);
+
+        const current = nextRoisState[idx] || [];
+        nextRoisState[idx] = current.map((roi, roiIdx) => {
+          const roiId = roi.id ?? roiIdx;
+          const ai = aiResults.find((r) => (r.roi_id ?? r.id) === roiId) || aiResults[roiIdx];
+          if (!ai) return roi;
+          return {
+            ...roi,
+            id: roiId,
+            status: 'done',
+            aiGram: ai.classification_gram ?? ai.aiGram,
+            aiShape: ai.classification_shape ?? ai.aiShape ?? 'Kokus',
+            confidence: ai.classification_confidence ?? ai.confidence,
+            cropUrl: ai.image_file_name ?? ai.crop_url ?? roi.cropUrl,
+          };
+        });
+      }
+
+      setRois(nextRoisState);
+
+      const gramPositive = aggregatedResults.filter((r) => (r.classification_gram ?? r.aiGram) === 'Positif').length;
+      const gramNegative = aggregatedResults.filter((r) => (r.classification_gram ?? r.aiGram) === 'Negatif').length;
+
       setResult({
-        gramPositive: 15,
-        gramNegative: 8,
-        confidence: 96.2,
+        gramPositive,
+        gramNegative,
+        confidence: aggregatedResults.length
+          ? Math.round((aggregatedResults.reduce((sum, r) => sum + Number(r.classification_confidence ?? r.confidence ?? 0), 0) / aggregatedResults.length) * 100) / 100
+          : 0,
         details: [
-          { type: 'Coccus (Gram +)', count: 10 },
-          { type: 'Bacillus (Gram +)', count: 5 },
-          { type: 'Bacillus (Gram -)', count: 8 },
+          { type: 'Kokus (Gram +)', count: gramPositive },
+          { type: 'Kokus (Gram -)', count: gramNegative },
         ]
       });
-    }, 1500);
+
+      setStatus('done');
+      setMode('view');
+    } catch (error) {
+      console.error('Gagal klasifikasi:', error);
+      setStatus('idle');
+      alert('Terjadi kesalahan saat memproses gambar.');
+    }
+  };
+
+  // --- FUNGSI MENGHAPUS GAMBAR DI BACKEND ---
+  const deleteOrphanedSpecimen = async (specimenId) => {
+    try {
+      await fetch(`${API_BASE_URL}/analysis/cleanup/${specimenId}`, {
+        method: 'DELETE',
+        keepalive: true,
+      });
+      console.log(`Specimen sampah ${specimenId} berhasil dihapus dari server.`);
+    } catch (err) {
+      console.error('Gagal menghapus specimen sampah:', err);
+    }
+  };
+
+  // --- FUNGSI TOMBOL RESET / CANCEL ---
+  const handleReset = async () => {
+    if (window.confirm('Yakin ingin membatalkan? Semua gambar dan hasil klasifikasi akan dihapus.')) {
+      await Promise.all(
+        uploadedSpecimens.map((specimen) => {
+          const specimenId = specimen.id ?? specimen.specimen_id;
+          return specimenId ? deleteOrphanedSpecimen(specimenId) : Promise.resolve();
+        })
+      );
+
+      cleanupData.current.uploadedSpecimens = [];
+
+      setImages([]);
+      setRois({});
+      setUploadedSpecimens([]);
+      setActiveImgIdx(0);
+      setResult(null);
+      setStatus('idle');
+      setMode('view');
+      setIsSubmitted(false);
+    }
+  };
+
+  // --- FUNGSI KEMBALI (BACK) DENGAN CLEANUP ---
+  const handleBack = async () => {
+    if (!isSubmitted && uploadedSpecimens.length > 0) {
+      await Promise.all(
+        uploadedSpecimens.map((specimen) => {
+          const specimenId = specimen.id ?? specimen.specimen_id;
+          return specimenId ? deleteOrphanedSpecimen(specimenId) : Promise.resolve();
+        })
+      );
+
+      cleanupData.current.uploadedSpecimens = [];
+    }
+
+    navigate(-1);
+  };
+
+  const handleRemoveImage = async (indexToRemove) => {
+    const imageToRemove = images[indexToRemove];
+    const specimenId = imageToRemove?.specimenId;
+
+    if (specimenId) {
+      await deleteOrphanedSpecimen(specimenId);
+      setUploadedSpecimens((prev) => prev.filter((s) => (s.id ?? s.specimen_id) !== specimenId));
+      cleanupData.current.uploadedSpecimens = cleanupData.current.uploadedSpecimens.filter((s) => (s.id ?? s.specimen_id) !== specimenId);
+    }
+
+    setImages((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+
+    setRois((prev) => {
+      const next = {};
+      Object.entries(prev).forEach(([k, value]) => {
+        const idx = Number(k);
+        if (idx < indexToRemove) next[idx] = value;
+        else if (idx > indexToRemove) next[idx - 1] = value;
+      });
+      return next;
+    });
+
+    setImageMeta((prev) => {
+      const next = {};
+      Object.entries(prev).forEach(([k, value]) => {
+        const idx = Number(k);
+        if (idx < indexToRemove) next[idx] = value;
+        else if (idx > indexToRemove) next[idx - 1] = value;
+      });
+      return next;
+    });
+
+    setActiveImgIdx((prevIdx) => {
+      if (images.length <= 1) return 0;
+      if (prevIdx > indexToRemove) return prevIdx - 1;
+      if (prevIdx === indexToRemove) return Math.max(0, Math.min(indexToRemove, images.length - 2));
+      return prevIdx;
+    });
+
+    setResult(null);
+    setStatus('idle');
+    setMode('drag');
   };
 
   const clearRois = () => {
@@ -359,13 +756,40 @@ const AnalysisProcess = () => {
     if (!images.length) return;
     if (zoom !== 1) return;
     if (pan.x !== 0 || pan.y !== 0) return;
-    centerImageFor(imgContainerRef, imgRef);
+    centerImageFor(imgContainerRef, imageElementRef);
   }, [images, activeImgIdx, pan.x, pan.y, zoom]);
 
   useEffect(() => {
     if (!showFullPreview) return;
     centerImageFor(modalImgRef, modalImageRef);
   }, [showFullPreview, activeImgIdx]);
+
+  // Sinkronkan ref cleanup dengan state terbaru
+  useEffect(() => {
+    cleanupData.current = { isSubmitted, uploadedSpecimens };
+  }, [isSubmitted, uploadedSpecimens]);
+
+  // UNMOUNT murni: hanya saat keluar/pindah halaman
+  useEffect(() => {
+    return () => {
+      const {
+        isSubmitted: finalIsSubmitted,
+        uploadedSpecimens: finalSpecimens,
+      } = cleanupData.current;
+
+      if (!finalIsSubmitted && finalSpecimens.length > 0) {
+        finalSpecimens.forEach((specimen) => {
+          const specimenId = specimen.id ?? specimen.specimen_id;
+          if (specimenId) {
+            fetch(`${API_BASE_URL}/analysis/cleanup/${specimenId}`, {
+              method: 'DELETE',
+              keepalive: true,
+            }).catch((err) => console.error('Cleanup error:', err));
+          }
+        });
+      }
+    };
+  }, []);
 
   const deleteRoi = (indexToRemove) => {
     const current = rois[activeImgIdx] || [];
@@ -375,6 +799,9 @@ const AnalysisProcess = () => {
   };
 
   const currentRois = rois[activeImgIdx] || [];
+  const totalRois = images.reduce((sum, _, idx) => sum + ((rois[idx] || []).length), 0);
+  const imagesWithoutRoiCount = images.reduce((sum, _, idx) => sum + (((rois[idx] || []).length === 0 ? 1 : 0)), 0);
+  const canStartClassification = images.length > 0 && totalRois > 0 && imagesWithoutRoiCount === 0;
 
   // --- LOGIKA STEPPER OPERASIONAL (UPDATE) ---
   let currentStep = 1;
@@ -392,18 +819,58 @@ const AnalysisProcess = () => {
     { num: 3, label: 'Review & Kirim' }
   ];
 
+  if (isPatientLoading) {
+    return <div className="min-h-screen flex items-center justify-center">Memuat data pasien...</div>;
+  }
+
+  if (!patient) {
+    return <div className="min-h-screen flex items-center justify-center">Data pasien tidak ditemukan.</div>;
+  }
+
   return (
     <>
-    <div className="max-w-7xl mx-auto pb-10 min-h-[calc(100vh-100px)] lg:h-[calc(100vh-100px)] flex flex-col bg-slate-50/80 p-2 md:p-4 rounded-2xl">
+    <div className="max-w-7xl mx-auto pb-10 min-h-[calc(100vh-100px)] lg:h-[calc(100vh-100px)] flex flex-col bg-slate-50/80 p-2 md:p-4 rounded-2xl relative">
+      {(status === 'analyzing' || status === 'auto_detecting') && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm transition-all duration-300">
+          <div className="bg-white p-6 rounded-2xl shadow-2xl flex flex-col items-center w-80 text-center animate-in zoom-in-95">
+            <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+
+            <h3 className="text-lg font-bold text-slate-800">
+              {status === 'auto_detecting' ? 'AI YOLO Memindai...' : 'AI CNN Memproses...'}
+            </h3>
+            <p className="text-sm text-slate-500 mt-2">
+              {status === 'auto_detecting'
+                ? 'Mencari dan mendeteksi bakteri secara otomatis. Mohon tunggu.'
+                : `Mengekstrak ${currentRois.length} gambar dan menjalankan klasifikasi.`}
+            </p>
+
+            <div className="w-full h-1.5 bg-slate-100 rounded-full mt-5 overflow-hidden relative">
+              <div className="absolute top-0 left-0 h-full bg-blue-600 rounded-full animate-pulse transition-all duration-500 w-full opacity-75"></div>
+              <div className="absolute top-0 left-0 h-full w-1/3 bg-white/40 skew-x-[-20deg] animate-[translate-x-full_1.5s_infinite]"></div>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* HEADER NAVIGASI */}
       <div className="flex items-center justify-between mb-4">
         <button 
-          onClick={() => navigate('/analyst/patients')}
+          onClick={handleBack}
           className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors font-medium text-sm md:text-base"
         >
           <ArrowLeft size={18} className="md:w-5 md:h-5" /> Kembali ke Daftar
         </button>
+      </div>
+
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <Microscope className="text-blue-600" /> Analisis Spesimen Baru
+          </h2>
+          <p className="text-slate-500 text-sm mt-1">
+            Pasien: <span className="font-bold text-slate-700">{patient.nama_lengkap}</span> | ID: <span className="font-mono">{patient.id_pasien}</span> | {patient.jenis_kelamin}
+          </p>
+        </div>
       </div>
 
       {/* --- UI STEPPER --- */}
@@ -521,13 +988,17 @@ const AnalysisProcess = () => {
                   className="inline-block relative" // Bungkus konten agar size pas dengan gambar
                 >
                   <img 
-                    ref={imgRef}
-                    src={images[activeImgIdx]} 
+                    ref={imageElementRef}
+                    src={images[activeImgIdx]?.previewUrl} 
+                    crossOrigin="anonymous"
                     alt="Sample" 
                     className="max-w-none block pointer-events-none" // pointer-events-none agar gambar tidak di-drag browser
                     style={{ maxHeight: '80vh' }} // Batas tinggi awal
                     onDragStart={(e) => e.preventDefault()}
-                    onLoad={() => centerImageFor(imgContainerRef, imgRef)}
+                    onLoad={() => {
+                      centerImageFor(imgContainerRef, imageElementRef);
+                      updateImageMeta(activeImgIdx, imageElementRef.current);
+                    }}
                   />
                   
                   {/* --- ROI RENDER LAYER (Inside Transform) --- */}
@@ -556,8 +1027,8 @@ const AnalysisProcess = () => {
                       style={{
                         left: box.x, 
                         top: box.y, 
-                        width: box.w, 
-                        height: box.h,
+                        width: box.width ?? box.w, 
+                        height: box.height ?? box.h,
                         pointerEvents: 'auto'
                       }}
                     />
@@ -631,9 +1102,11 @@ const AnalysisProcess = () => {
                 </div>
                 <h3 className="text-gray-800 font-bold text-lg mb-2">Upload Citra Mikroskop</h3>
                 <p className="text-gray-500 text-sm mb-6">Dukung multi-upload (JPG, PNG)</p>
-                <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg inline-flex items-center gap-2">
-                  <Upload size={18} /> Pilih Gambar
-                  <input type="file" multiple className="hidden" accept="image/*" onChange={handleImageUpload} />
+                <label className={`cursor-pointer text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg inline-flex items-center gap-2 ${
+                  isUploading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                }`}>
+                  <Upload size={18} /> {isUploading ? 'Mengunggah...' : 'Pilih Gambar'}
+                  <input type="file" multiple className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploading} />
                 </label>
               </div>
             </div>
@@ -649,8 +1122,10 @@ const AnalysisProcess = () => {
               <Info size={14} /> Data Pasien
             </h3>
             <div className="space-y-3">
-              <div><p className="text-xs text-gray-500">Nama</p><p className="font-bold text-gray-800">{patient.name}</p></div>
-              <div><p className="text-xs text-gray-500">Kode Sampel</p><p className="font-mono text-xs bg-gray-100 px-2 py-1 rounded w-fit">{patient.code}</p></div>
+              <div><p className="text-xs text-gray-500">Nama</p><p className="font-bold text-gray-800">{patient.nama_lengkap}</p></div>
+              <div><p className="text-xs text-gray-500">ID Pasien</p><p className="font-mono text-xs bg-gray-100 px-2 py-1 rounded w-fit">{patient.id_pasien}</p></div>
+              <div><p className="text-xs text-gray-500">Jenis Kelamin</p><p className="text-sm text-gray-700">{patient.jenis_kelamin}</p></div>
+              <div><p className="text-xs text-gray-500">Spesimen Terunggah</p><p className="text-sm font-semibold text-blue-700">{uploadedSpecimens.length}</p></div>
             </div>
           </div>
 
@@ -659,20 +1134,31 @@ const AnalysisProcess = () => {
             <div className="bg-white p-4 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200">
               <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Sampel ({images.length})</p>
               <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                {images.map((src, idx) => (
+                {images.map((item, idx) => (
                   <div 
                     key={idx}
-                    onClick={() => { setActiveImgIdx(idx); resetView(); }}
-                    className={`w-16 h-16 rounded-lg overflow-hidden border-2 cursor-pointer flex-shrink-0 transition-all ${
+                    onClick={() => { setActiveImgIdx(idx); resetView(); setMode('drag'); }}
+                    className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 cursor-pointer flex-shrink-0 transition-all ${
                       activeImgIdx === idx ? 'border-blue-600 ring-2 ring-blue-100' : 'border-transparent opacity-60 hover:opacity-100'
                     }`}
                   >
-                    <img src={src} className="w-full h-full object-cover" alt="Thumb" />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveImage(idx);
+                      }}
+                      className="absolute top-0.5 right-0.5 z-10 w-4 h-4 rounded-full bg-black/70 text-white text-[10px] leading-none flex items-center justify-center hover:bg-red-600"
+                      title="Hapus sampel"
+                    >
+                      ×
+                    </button>
+                    <img src={item.previewUrl} className="w-full h-full object-cover" alt="Thumb" />
                   </div>
                 ))}
                 <label className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 text-gray-400 hover:text-blue-500 transition-colors flex-shrink-0">
                   <Upload size={20} />
-                  <input type="file" multiple className="hidden" accept="image/*" onChange={handleImageUpload} />
+                  <input type="file" multiple className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploading} />
                 </label>
               </div>
             </div>
@@ -709,10 +1195,18 @@ const AnalysisProcess = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <button onClick={() => navigate('/analyst/patients')} className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700">
-                    Simpan & Keluar
+                  <button
+                    onClick={() => {
+                      setIsSubmitted(true);
+                      // TODO: Tambahkan API submit final ke antrean dokter di sini.
+                      alert('Hasil analisis berhasil disimpan dan diteruskan ke antrean dokter!');
+                      navigate('/analyst/history');
+                    }}
+                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <Save size={18} /> Simpan & Kirim ke Dokter
                   </button>
-                  <button onClick={() => { setStatus('idle'); setResult(null); clearRois(); }} className="w-full py-2.5 border border-gray-200 text-gray-600 rounded-lg font-medium text-sm hover:bg-gray-50">
+                  <button onClick={handleReset} className="w-full py-2.5 border border-gray-200 text-gray-600 rounded-lg font-medium text-sm hover:bg-gray-50">
                     Analisis Ulang
                   </button>
                 </div>
@@ -743,7 +1237,7 @@ const AnalysisProcess = () => {
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <Trash size={18} className="text-red-500 group-hover:scale-110 transition-transform" />
-                      <span className="text-xs font-bold text-red-700">Reset Semua</span>
+                      <span className="text-xs font-bold text-red-700">Reset Seleksi</span>
                     </div>
                     <p className="text-[10px] text-red-400 leading-tight">Hapus seluruh seleksi saat ini</p>
                   </button>
@@ -751,25 +1245,30 @@ const AnalysisProcess = () => {
 
                 {/* Tombol Eksekusi */}
                 <button 
-                  onClick={handleClassify}
-                  disabled={currentRois.length === 0 || status === 'classifying'}
+                  onClick={handleStartClassification}
+                  disabled={!canStartClassification || status === 'analyzing' || status === 'auto_detecting'}
                   className={`w-full py-3.5 rounded-xl font-bold text-sm shadow-md flex items-center justify-center gap-2 transition-all ${
-                    currentRois.length === 0 
+                    !canStartClassification 
                       ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
                       : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
                   }`}
                 >
-                  {status === 'classifying' ? (
+                  {status === 'analyzing' || status === 'auto_detecting' ? (
                     <span className="flex items-center gap-2 animate-pulse">
-                      <Activity size={16} className="animate-spin"/> Memproses CNN...
+                      <Activity size={16} className="animate-spin"/> {status === 'auto_detecting' ? 'Memproses YOLO...' : 'Memproses CNN...'}
                     </span>
                   ) : (
                     <>
                       <Play size={16} fill="currentColor" /> 
-                      Mulai Klasifikasi {currentRois.length > 0 ? `(${currentRois.length} Area)` : ''}
+                      Mulai Klasifikasi {totalRois > 0 ? `(${totalRois} Area / ${images.length} Sampel)` : ''}
                     </>
                   )}
                 </button>
+                {!canStartClassification && images.length > 0 && (
+                  <p className="text-xs text-amber-600 text-center">
+                    Semua sampel harus memiliki minimal 1 bounding box sebelum klasifikasi batch.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -865,7 +1364,8 @@ const AnalysisProcess = () => {
             >
               <img 
                 ref={modalImageRef}
-                src={images[activeImgIdx]} 
+                src={images[activeImgIdx]?.previewUrl} 
+                crossOrigin="anonymous"
                 alt="Full Preview" 
                 className="max-w-none pointer-events-none"
                 style={{ maxHeight: '80vh' }}
@@ -894,7 +1394,10 @@ const AnalysisProcess = () => {
                           : 'border-blue-400'
                   }`}
                   style={{
-                    left: box.x, top: box.y, width: box.w, height: box.h,
+                    left: box.x,
+                    top: box.y,
+                    width: box.width ?? box.w,
+                    height: box.height ?? box.h,
                     pointerEvents: 'auto'
                   }}
                 />

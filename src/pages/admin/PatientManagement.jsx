@@ -8,6 +8,19 @@ import {
   Trash2
 } from 'lucide-react';
 
+const getDefaultWaktuMasuk = () => {
+  const now = new Date();
+  const pad = (num) => String(num).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+};
+
+const normalizeWaktuMasuk = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) return `${raw}:00`;
+  return raw;
+};
+
 const PatientManagement = () => {
   // --- STATE API ---
   const [patients, setPatients] = useState([]);
@@ -105,12 +118,21 @@ const PatientManagement = () => {
     }
 
     try {
+      const payload = {
+        nama_lengkap: formData.nama_lengkap,
+        jenis_kelamin: formData.jenis_kelamin,
+        tanggal_lahir: formData.tanggal_lahir,
+        alamat: formData.alamat,
+        no_telepon: formData.no_telepon,
+        waktu_masuk: normalizeWaktuMasuk(getDefaultWaktuMasuk())
+      };
+
       const response = await fetch(`${API_BASE_URL}/patients`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
 
       if (response.status === 201 || response.ok) {
@@ -323,6 +345,7 @@ const PatientManagement = () => {
                     onChange={(e) => setFormData({ ...formData, no_telepon: e.target.value })}
                   />
                 </div>
+
               </div>
 
               {/* Modal Actions */}

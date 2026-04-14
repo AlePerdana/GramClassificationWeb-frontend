@@ -34,3 +34,16 @@ export interface responseRetrain {
     status: string;
     message: string;
 }
+
+export interface responseProgressRetrain {
+    data: progressRetrain[]
+    meta: meta
+}
+
+export interface progressRetrain {
+    job_id: number;
+    model_name: string;
+    model_id: number;
+    status: string;
+    progress_percent: number;
+}

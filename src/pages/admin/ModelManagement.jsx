@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Save, Upload, Play, Trash2, Check, Zap, Layers, FileUp, Activity, Target,
-  BarChart2, Settings, Database, Clock, TrendingUp, TrendingDown, Cpu, Star, CheckCircle
+  BarChart2, Settings, Database, Clock, TrendingUp, TrendingDown, Cpu, Star, CheckCircle, RefreshCw
 } from 'lucide-react';
 import { ModelService } from '../../service/modelService';
 
@@ -76,6 +76,34 @@ const MetricDelta = ({ value, isTime = false }) => {
   );
 };
 
+const isJobFinished = (status) => {
+  const s = String(status || '').toLowerCase();
+  return (
+    s.includes('success') ||
+    s.includes('succeed') ||
+    s.includes('done') ||
+    s.includes('complete') ||
+    s.includes('failed') ||
+    s.includes('error') ||
+    s.includes('cancel')
+  );
+};
+
+const isJobInProgress = (status) => {
+  const s = String(status || '').toLowerCase();
+  if (isJobFinished(s)) return false;
+  return s.includes('run') || s.includes('progress') || s.includes('queue') || s.includes('pending') || !s;
+};
+
+const getJobBadgeClass = (status) => {
+  const s = String(status || '').toLowerCase();
+  if (s.includes('success') || s.includes('done') || s.includes('complete')) return 'bg-green-50 text-green-700 border-green-200';
+  if (s.includes('failed') || s.includes('error')) return 'bg-red-50 text-red-700 border-red-200';
+  if (s.includes('cancel')) return 'bg-gray-50 text-gray-600 border-gray-200';
+  if (isJobInProgress(s)) return 'bg-blue-50 text-blue-700 border-blue-200';
+  return 'bg-gray-50 text-gray-600 border-gray-200';
+};
+
 const ModelManagement = () => {
   const [activeTab, setActiveTab] = useState('detection');
   const [yoloModels, setYoloModels] = useState(initialYoloModels);
@@ -85,6 +113,7 @@ const ModelManagement = () => {
 
   const [isRetrainModalOpen, setIsRetrainModalOpen] = useState(false);
   const [isRetrainSubmitting, setIsRetrainSubmitting] = useState(false);
+  const [activeTrainingJobId, setActiveTrainingJobId] = useState(null);
   const [retrainForm, setRetrainForm] = useState({
     model_id: '',
     epochs_head: '',
@@ -100,6 +129,56 @@ const ModelManagement = () => {
     type: 'success',
     message: '',
   });
+
+  const [trainingJobs, setTrainingJobs] = useState([]);
+  const [isLoadingTrainingJobs, setIsLoadingTrainingJobs] = useState(false);
+  const [trainingJobsError, setTrainingJobsError] = useState('');
+
+  const fetchTrainingJobs = async () => {
+    setIsLoadingTrainingJobs(true);
+    setTrainingJobsError('');
+    try {
+      const res = await modelService.getProgressRetrain({ page: 1, per_page: 10 });
+      const list = Array.isArray(res?.data) ? res.data : [];
+      const sorted = [...list].sort((a, b) => Number(b.job_id || 0) - Number(a.job_id || 0));
+      setTrainingJobs(sorted);
+
+      if (activeTrainingJobId) {
+        const job = sorted.find((j) => String(j.job_id) === String(activeTrainingJobId));
+        if (job && isJobFinished(job.status)) {
+          setActiveTrainingJobId(null);
+          if (String(job.status || '').toLowerCase().includes('fail') || String(job.status || '').toLowerCase().includes('error')) {
+            showToast('error', `Training job #${job.job_id} gagal.`);
+          } else {
+            showToast('success', `Training job #${job.job_id} selesai.`);
+          }
+        }
+      }
+    } catch (err) {
+      setTrainingJobsError(err?.message || 'Gagal mengambil progress retrain.');
+    } finally {
+      setIsLoadingTrainingJobs(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTrainingJobs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const shouldPollTrainingJobs = useMemo(() => {
+    if (activeTrainingJobId) return true;
+    return (trainingJobs || []).some((j) => isJobInProgress(j?.status));
+  }, [activeTrainingJobId, trainingJobs]);
+
+  useEffect(() => {
+    if (!shouldPollTrainingJobs) return;
+    const id = window.setInterval(() => {
+      fetchTrainingJobs();
+    }, 4000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldPollTrainingJobs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -210,7 +289,11 @@ const ModelManagement = () => {
     try {
       const res = await modelService.retrainModel(payload);
       showToast('success', res?.message || 'Retrain berhasil diproses.');
+      if (res?.job_id !== undefined && res?.job_id !== null) {
+        setActiveTrainingJobId(res.job_id);
+      }
       setIsRetrainModalOpen(false);
+      fetchTrainingJobs();
     } catch (err) {
       showToast('error', err?.message || 'Retrain gagal.');
     } finally {
@@ -528,6 +611,72 @@ const ModelManagement = () => {
             >
               <Play size={16} /> Mulai Manual
             </button>
+          </div>
+
+          {/* Panel Progress Retrain */}
+          <div className="bg-white p-5 rounded-xl shadow-md border border-gray-200">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2"><Activity size={18} className="text-slate-500"/> Progress Pelatihan</h3>
+              <button
+                type="button"
+                onClick={fetchTrainingJobs}
+                disabled={isLoadingTrainingJobs}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                aria-label="Refresh progress retrain"
+                title="Refresh"
+              >
+                <RefreshCw size={14} className={isLoadingTrainingJobs ? 'animate-spin' : ''} />
+                Refresh
+              </button>
+            </div>
+            {trainingJobsError && (
+              <div className="bg-red-50 text-red-700 border border-red-200 px-3 py-2 rounded-lg text-xs">
+                {trainingJobsError}
+              </div>
+            )}
+
+            {isLoadingTrainingJobs ? (
+              <div className="text-xs text-gray-500">Memuat progress...</div>
+            ) : (trainingJobs || []).length === 0 ? (
+              <div className="text-xs text-gray-500">Belum ada training job.</div>
+            ) : (
+              <div className="space-y-3">
+                {(trainingJobs || []).slice(0, 5).map((job) => {
+                  const percentRaw = Number(job?.progress_percent ?? 0);
+                  const percent = Number.isFinite(percentRaw) ? Math.max(0, Math.min(100, percentRaw)) : 0;
+                  const isActive = activeTrainingJobId && String(job?.job_id) === String(activeTrainingJobId);
+                  return (
+                    <div key={job.job_id} className={`p-3 rounded-xl border ${isActive ? 'border-blue-200 bg-blue-50/30' : 'border-gray-200 bg-white'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-gray-800 truncate" title={job.model_name}>
+                            #{job.job_id} - {job.model_name}
+                          </div>
+                          <div className="text-[11px] text-gray-500 mt-0.5">Model ID: {job.model_id}</div>
+                        </div>
+                        <span className={`shrink-0 px-2 py-1 rounded-full text-[10px] font-bold border ${getJobBadgeClass(job.status)}`}>
+                          {job.status || 'UNKNOWN'}
+                        </span>
+                      </div>
+
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between text-[10px] text-gray-500 font-semibold">
+                          <span>Progress</span>
+                          <span>{percent.toFixed(0)}%</span>
+                        </div>
+                        <div className="mt-1 h-2 w-full rounded-full bg-gray-100 overflow-hidden border border-gray-200">
+                          <div
+                            className={`h-full rounded-full ${percent >= 100 ? 'bg-green-500' : 'bg-blue-600'}`}
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-[10px] text-gray-400 mt-3">*Auto update aktif saat ada job berjalan.</p>
           </div>
 
         </div>

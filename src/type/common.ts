@@ -22,3 +22,7 @@ export interface paramWithTaskType extends param {
 export interface paramWithSearch extends param {
     search?: string;
 }
+
+export interface paramWithStatus extends param {
+    status?: string;
+}

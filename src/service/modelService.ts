@@ -1,5 +1,5 @@
-import { paramWithTaskType } from "../type/common";
-import { requestBodyRetrain, responseModel, responseRetrain } from "../type/modelType";
+import { paramWithStatus, paramWithTaskType } from "../type/common";
+import { requestBodyRetrain, responseModel, responseProgressRetrain, responseRetrain } from "../type/modelType";
 import { APP_CONFIG } from "../utils/constant";
 import authService from "./authService";
 
@@ -52,4 +52,25 @@ export class ModelService {
         const body = await tryReadJson();
         return body as responseRetrain;
     }
+
+    async getProgressRetrain(params?: paramWithStatus): Promise<responseProgressRetrain> {
+        const queryParams = new URLSearchParams();
+
+        if (params?.status) queryParams.append('status', params.status);
+        if (params?.page) queryParams.append('page', params.page.toString());
+        if (params?.per_page) queryParams.append('per_page', params.per_page.toString());
+
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/training-jobs?${queryParams.toString()}`, {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to fetch retrain progress: ${response.statusText}`);
+        }
+        return response.json() as Promise<responseProgressRetrain>;
+    }
+
 }

@@ -1,40 +1,175 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
-  ArrowLeft, Printer, Edit, CheckCircle,
-  Info, AlertCircle, User, Activity, FileText
+  ArrowLeft, Printer, Edit,
+  Info, User, Activity, FileText
 } from 'lucide-react';
 
-// --- DUMMY DATA ---
-// Data ini mensimulasikan hasil yang sudah diproses Analis dan (mungkin) sudah divalidasi Dokter.
-const dummyData = {
-  id: 'SPL-2026-001',
-  status: 'validated', // Bisa 'pending' (menunggu dokter) atau 'validated' (selesai)
-  patient: { name: 'Budi Santoso', age: 45, gender: 'Laki-laki', rm: 'RM-09823' },
-  clinical: { date: '27 Jan 2026', specimen: 'Sputum', analyst: 'Siti Aminah', doctor: 'Dr. Riro, Sp.MK' },
-  doctorNote: 'Pasien diindikasikan mengalami infeksi saluran pernapasan. Ditemukan dominasi Gram Positif Kokus.',
-  crops: [
-    { id: 1, img: 'https://placehold.co/150/2563eb/ffffff?text=Bakteri+1', aiGram: 'Positif', aiShape: 'Kokus', finalGram: 'Positif', finalShape: 'Kokus', status: 'accepted' },
-    { id: 2, img: 'https://placehold.co/150/dc2626/ffffff?text=Bakteri+2', aiGram: 'Negatif', aiShape: 'Batang', finalGram: 'Negatif', finalShape: 'Batang', status: 'accepted' },
-    { id: 3, img: 'https://placehold.co/150/94a3b8/ffffff?text=Kotoran', aiGram: 'Positif', aiShape: 'Kokus', finalGram: null, finalShape: null, status: 'rejected' },
-    { id: 4, img: 'https://placehold.co/150/2563eb/ffffff?text=Bakteri+4', aiGram: 'Negatif', aiShape: 'Kokus', finalGram: 'Positif', finalShape: 'Kokus', status: 'revised' }
-  ]
+const API_HOST = 'http://localhost:8000';
+
+const joinApiUrl = (path) => {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_HOST}${path.startsWith('/') ? '' : '/'}${path}`;
+};
+
+const normalizeGram = (value) => {
+  const v = String(value || '').toLowerCase();
+  if (!v) return null;
+  if (v.includes('posit')) return 'Positif';
+  if (v.includes('negat')) return 'Negatif';
+  return value;
+};
+
+const normalizeShape = (value) => {
+  const v = String(value || '').toLowerCase();
+  if (!v) return null;
+  if (v.includes('kokus') || v.includes('coccus')) return 'Kokus';
+  if (v.includes('batang') || v.includes('basil') || v.includes('bacillus')) return 'Batang';
+  if (v.includes('spir')) return 'Spiral';
+  return value;
 };
 
 const HistoryDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const [detailData, setDetailData] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
 
   // Deteksi Role berdasarkan URL saat ini
   const isDoctor = location.pathname.includes('/doctor');
   const isAnalyst = location.pathname.includes('/analyst');
+  const isDoctorHistoryDetail = isDoctor && location.pathname.includes('/doctor/history/');
 
-  const data = dummyData;
+  useEffect(() => {
+    const fetchDetail = async () => {
+      setIsLoading(true);
+      setError('');
+      try {
+        const response = await fetch(`${API_HOST}/api/doctor/specimen-details/${id}`);
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result?.message || result?.detail || 'Gagal mengambil detail riwayat.');
+        }
+
+        setDetailData(result?.data || result);
+      } catch (err) {
+        setError(err.message || 'Terjadi kesalahan saat mengambil data.');
+        setDetailData(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (id) fetchDetail();
+  }, [id]);
+
+  const data = useMemo(() => {
+    if (!detailData) return null;
+
+    const patient = detailData?.patient || {};
+    const isValidated =
+      isDoctorHistoryDetail ||
+      detailData?.is_validated === true ||
+      Boolean(detailData?.validated_at) ||
+      Boolean(detailData?.tanggal_validasi) ||
+      String(detailData?.status || detailData?.validation_status || '').toLowerCase().includes('valid');
+
+    const mappedCrops = (detailData?.classifications || []).map((item, index) => {
+      const aiGram = normalizeGram(item?.ai_gram || item?.classification_gram);
+      const aiShape = normalizeShape(item?.classification_bentuk);
+      const finalGram = normalizeGram(item?.validation_gram);
+      const finalShape = normalizeShape(item?.validation_bentuk);
+      const displayGram = finalGram || aiGram;
+      const displayShape = finalShape || aiShape;
+
+      const isRejected =
+        item?.is_rejected === true ||
+        String(item?.validation_gram || '').toLowerCase() === 'reject' ||
+        String(item?.validation_bentuk || '').toLowerCase() === 'reject';
+
+      let cropStatus = 'accepted';
+      if (isRejected) cropStatus = 'rejected';
+      else if (finalGram || finalShape) {
+        const sameGram = !finalGram || !aiGram || finalGram === aiGram;
+        const sameShape = !finalShape || !aiShape || finalShape === aiShape;
+        cropStatus = sameGram && sameShape ? 'accepted' : 'revised';
+      }
+
+      return {
+        id: item?.id ?? item?.classification_id ?? index,
+        img: joinApiUrl(item?.image_url || item?.crop_url || ''),
+        aiGram,
+        aiShape,
+        finalGram,
+        finalShape,
+        displayGram,
+        displayShape,
+        status: cropStatus
+      };
+    });
+
+    const firstClassificationNote = (detailData?.classifications || [])
+      .map((item) => item?.catatan || item?.doctor_note || item?.catatan_dokter || item?.validation_note)
+      .find((note) => String(note || '').trim().length > 0);
+
+    return {
+      id: detailData?.specimen_code || detailData?.specimen_id || id,
+      status: isValidated ? 'validated' : 'pending',
+      patient: {
+        name: patient?.nama || patient?.name || detailData?.patient_name || '-',
+        age: patient?.umur || patient?.age || '-',
+        gender: patient?.jenis_kelamin || patient?.gender || '-',
+        rm: patient?.id_pasien || patient?.patient_id || '-'
+      },
+      clinical: {
+        date: detailData?.tanggal || detailData?.created_at || '-',
+        specimen: detailData?.jenis_spesimen || detailData?.specimen_type || 'Sputum',
+        analyst: detailData?.analyst_name || detailData?.analyst || '-',
+        doctor: detailData?.doctor_name || detailData?.dokter || '-'
+      },
+      doctorNote:
+        detailData?.doctor_note ||
+        detailData?.catatan_dokter ||
+        detailData?.catatan ||
+        detailData?.doctor_notes ||
+        detailData?.notes ||
+        detailData?.validation?.catatan_dokter ||
+        detailData?.validation?.catatan ||
+        detailData?.validation_result?.catatan_dokter ||
+        detailData?.validation_result?.catatan ||
+        firstClassificationNote ||
+        '',
+      crops: mappedCrops
+    };
+  }, [detailData, id, isDoctorHistoryDetail]);
+
+  if (isLoading) {
+    return <div className="p-6 text-slate-600">Memuat detail riwayat...</div>;
+  }
+
+  if (error) {
+    return <div className="p-6 text-red-600">{error}</div>;
+  }
+
+  if (!data) {
+    return <div className="p-6 text-slate-600">Data detail riwayat tidak ditemukan.</div>;
+  }
 
   // Menghitung statistik untuk header
   const totalCrops = data.crops.length;
   const validCrops = data.crops.filter(c => c.status !== 'rejected').length;
+
+  const handleAnalystRevision = () => {
+    if (data.status === 'validated') {
+      const shouldContinue = window.confirm('Data sudah selesai divalidasi. Lanjutkan revisi? Status akan kembali ke Menunggu Validasi.');
+      if (!shouldContinue) return;
+    }
+    navigate(`/analyst/process/${id}`);
+  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10">
@@ -52,11 +187,6 @@ const HistoryDetail = () => {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-slate-800">Detail Riwayat Analisis</h1>
-              {data.status === 'validated' ? (
-                <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1"><CheckCircle size={14} /> Selesai Divalidasi</span>
-              ) : (
-                <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1"><AlertCircle size={14} /> Menunggu Validasi</span>
-              )}
             </div>
             <p className="text-slate-500 text-sm mt-1">ID Spesimen: <span className="font-mono font-bold">{data.id}</span></p>
           </div>
@@ -85,7 +215,7 @@ const HistoryDetail = () => {
 
           {isAnalyst && (
             <button
-              onClick={() => navigate(`/analyst/process/${id}`)}
+              onClick={handleAnalystRevision}
               className="px-4 py-2 bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors"
             >
               <Edit size={16} /> Revisi Analisis
@@ -159,18 +289,18 @@ const HistoryDetail = () => {
                 <div className="p-3 text-center">
                   {data.status === 'validated' && crop.status !== 'rejected' ? (
                     <>
-                      <p className={`text-xs font-bold ${crop.finalGram === 'Positif' ? 'text-purple-700' : 'text-red-600'}`}>
-                        Gram {crop.finalGram}
+                      <p className={`text-xs font-bold ${crop.displayGram === 'Positif' ? 'text-purple-700' : 'text-red-600'}`}>
+                        Gram {crop.displayGram}
                       </p>
-                      <p className="text-xs text-slate-600 font-medium">{crop.finalShape}</p>
+                      <p className="text-xs text-slate-600 font-medium">{crop.displayShape}</p>
                     </>
                   ) : data.status === 'pending' ? (
                     <>
-                      <p className="text-[10px] text-slate-400 mb-0.5">Prediksi AI:</p>
-                      <p className={`text-xs font-bold ${crop.aiGram === 'Positif' ? 'text-purple-700' : 'text-red-600'}`}>
-                        Gram {crop.aiGram}
+                      <p className="text-[10px] text-slate-400 mb-0.5">Hasil Validasi:</p>
+                      <p className={`text-xs font-bold ${crop.displayGram === 'Positif' ? 'text-purple-700' : 'text-red-600'}`}>
+                        Gram {crop.displayGram}
                       </p>
-                      <p className="text-xs text-slate-600 font-medium">{crop.aiShape}</p>
+                      <p className="text-xs text-slate-600 font-medium">{crop.displayShape}</p>
                     </>
                   ) : (
                     <p className="text-xs font-bold text-red-500 mt-2">Bukan Bakteri</p>

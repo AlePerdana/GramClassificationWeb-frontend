@@ -1,49 +1,125 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, Clock
 } from 'lucide-react';
 
-// --- DUMMY DATA RIWAYAT ---
-const historyData = [
-  { 
-    id: 1, 
-    date: '27 Jan 2026', 
-    time: '14:30',
-    patient: 'Budi Santoso', 
-    code: 'SPL-2026-001', 
-    analyst: 'Siti Aminah',
-    doctor: 'Dr. Riro',
-    status: 'Valid',
-    stats: { pos: 15, neg: 2, rejected: 0 }
-  },
-  { 
-    id: 2, 
-    date: '26 Jan 2026', 
-    time: '09:15',
-    patient: 'Siti Aminah', 
-    code: 'SPL-2026-002', 
-    analyst: 'Rudi Hartono',
-    doctor: 'Dr. Riro',
-    status: 'Valid',
-    stats: { pos: 1, neg: 18, rejected: 1 }
-  },
-  { 
-    id: 3, 
-    date: '25 Jan 2026', 
-    time: '11:00',
-    patient: 'Dewi Sartika', 
-    code: 'SPL-2026-003', 
-    analyst: 'Siti Aminah',
-    doctor: 'Dr. Gunawan',
-    status: 'Revisi',
-    stats: { pos: 5, neg: 5, rejected: 10 }
-  },
-];
+const API_BASE_URL = 'http://localhost:8000/api';
+
+const pad2 = (num) => String(num).padStart(2, '0');
+
+const toDateTimeParts = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return { date: '-', time: '-' };
+
+  const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const dateObj = new Date(normalized);
+
+  if (Number.isNaN(dateObj.getTime())) {
+    const [d, t] = raw.replace('T', ' ').split(' ');
+    return { date: d || '-', time: (t || '-').slice(0, 5) };
+  }
+
+  return {
+    date: `${dateObj.getFullYear()}-${pad2(dateObj.getMonth() + 1)}-${pad2(dateObj.getDate())}`,
+    time: `${pad2(dateObj.getHours())}:${pad2(dateObj.getMinutes())}`
+  };
+};
+
+const getPositiveCount = (item) =>
+  item.total_g_positif ??
+  item.gram_positive ??
+  item.gram_positive_count ??
+  item.positive_count ??
+  item.summary?.gram_positive_count ??
+  item.result_summary?.gram_positive_count ??
+  item.counts?.pos ??
+  0;
+
+const getNegativeCount = (item) =>
+  item.total_g_negatif ??
+  item.gram_negative ??
+  item.gram_negative_count ??
+  item.negative_count ??
+  item.summary?.gram_negative_count ??
+  item.result_summary?.gram_negative_count ??
+  item.counts?.neg ??
+  0;
+
+const getRejectedCount = (item) =>
+  item.rejected_count ??
+  item.summary?.rejected_count ??
+  item.result_summary?.rejected_count ??
+  item.counts?.rejected ??
+  0;
+
+const isValidatedItem = (item) => {
+  const status = String(item?.status || item?.validation_status || item?.status_validasi || '').toLowerCase();
+  return (
+    item?.is_validated === true ||
+    item?.sudah_divalidasi === true ||
+    Boolean(item?.validated_at) ||
+    Boolean(item?.tanggal_validasi) ||
+    status === 'validated' ||
+    status === 'tervalidasi' ||
+    status.includes('selesai')
+  );
+};
 
 const History = () => {
+  const [historyData, setHistoryData] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/analyst/history`);
+        if (!response.ok) {
+          setHistoryData([]);
+          return;
+        }
+
+        const result = await response.json();
+        const rawList = Array.isArray(result)
+          ? result
+          : Array.isArray(result?.data)
+            ? result.data
+            : Array.isArray(result?.results)
+              ? result.results
+              : [];
+
+        const mapped = rawList
+          .filter((item) => isValidatedItem(item))
+          .map((item, index) => {
+            const when = item?.validated_at || item?.tanggal_validasi || item?.updated_at || item?.created_at || item?.tanggal || item?.date;
+            const { date, time } = toDateTimeParts(when);
+            return {
+              id: item?.id ?? item?.id_specimen ?? item?.specimen_id ?? item?.specimenId ?? index,
+              date,
+              time,
+              patient: item?.patient_name || item?.patientName || item?.nama_pasien || item?.nama_lengkap || '-',
+              code: item?.specimen_code || item?.specimenCode || item?.code || item?.id_specimen || item?.id_spesimen || item?.specimen_id || item?.specimenId || '-',
+              analyst: item?.analis_pengirim || item?.analyst || item?.analyst_name || '-',
+              doctor: item?.dokter || item?.doctor || item?.doctor_name || '-',
+              status: 'Valid',
+              stats: {
+                pos: getPositiveCount(item),
+                neg: getNegativeCount(item),
+                rejected: getRejectedCount(item)
+              }
+            };
+          });
+
+        setHistoryData(mapped);
+      } catch (error) {
+        console.error('Gagal mengambil riwayat validasi dokter:', error);
+        setHistoryData([]);
+      }
+    };
+
+    fetchHistory();
+  }, []);
 
   // Filter Logic Sederhana
   const filteredData = historyData.filter(item => {

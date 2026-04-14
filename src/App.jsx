@@ -39,7 +39,8 @@ function App() {
         <Route path="/doctor" element={<MainLayout role="dokter" />}>
           <Route index element={<DashboardDoctor />} />
           <Route path="validation" element={<ValidationList />} />
-          <Route path="validation/:id" element={<ValidationDetail />} />
+          <Route path="validate/:specimenId" element={<ValidationDetail />} />
+          <Route path="validation/:specimenId" element={<ValidationDetail />} />
           <Route path="history" element={<DoctorHistory />} />
           <Route path="history/:id" element={<HistoryDetail />} />
         </Route>

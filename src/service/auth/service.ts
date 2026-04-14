@@ -1,12 +1,12 @@
+import axios from 'axios';
 import type { AppRole, AuthSession, AuthServiceConfig, AuthTokens, LoginRequest } from './types';
 import { getConfig, joinUrl } from './config';
 import { AuthError } from './errors';
-import { readJsonSafely } from './http';
 import { decodeJwtPayload, isJwtExpired } from './jwt';
 import { sessionStorage } from './storage';
 import { normalizeTokens } from './tokens';
 
-export type AuthService = {
+export type AuthServiceApi = {
     getApiBaseUrl(config?: AuthServiceConfig): string;
 
     getAccessToken(config?: AuthServiceConfig): string | null;
@@ -38,8 +38,33 @@ const normalizeRole = (value: unknown): AppRole | null => {
     return null;
 };
 
-export const createAuthService = (): AuthService => {
-    const service: AuthService = {
+export const createAuthService = (): AuthServiceApi => {
+    const toHeadersObject = (headers: HeadersInit | undefined): Record<string, string> => {
+        const result: Record<string, string> = {};
+        const h = new Headers(headers || undefined);
+        h.forEach((value, key) => {
+            result[key] = value;
+        });
+        return result;
+    };
+
+    const requestJson = async <T = any>(opts: {
+        url: string;
+        method: string;
+        headers?: Record<string, string>;
+        data?: any;
+    }) => {
+        const response = await axios.request<T>({
+            url: opts.url,
+            method: opts.method as any,
+            headers: opts.headers,
+            data: opts.data,
+            validateStatus: () => true,
+        });
+        return response;
+    };
+
+    const service: AuthServiceApi = {
         getApiBaseUrl(config?: AuthServiceConfig) {
             return getConfig(config).apiBaseUrl;
         },
@@ -119,17 +144,18 @@ export const createAuthService = (): AuthService => {
             const cfg = getConfig(config);
             const url = joinUrl(cfg.apiBaseUrl, cfg.loginPath);
 
-            const response = await fetch(url, {
+            const response = await requestJson({
+                url,
                 method: 'POST',
                 headers: {
                     Accept: 'application/json',
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(request),
+                data: request,
             });
 
-            const data = await readJsonSafely(response);
-            if (!response.ok) {
+            const data: any = response.data;
+            if (response.status < 200 || response.status >= 300) {
                 const message = (data && (data.detail || data.message)) || `Login gagal (HTTP ${response.status})`;
                 throw new AuthError(String(message), { status: response.status, details: data });
             }
@@ -156,17 +182,19 @@ export const createAuthService = (): AuthService => {
             }
 
             const url = joinUrl(cfg.apiBaseUrl, cfg.refreshPath);
-            const response = await fetch(url, {
+
+            const response = await requestJson({
+                url,
                 method: 'POST',
                 headers: {
                     Accept: 'application/json',
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ refresh: refreshToken }),
+                data: { refresh: refreshToken },
             });
 
-            const data = await readJsonSafely(response);
-            if (!response.ok) {
+            const data: any = response.data;
+            if (response.status < 200 || response.status >= 300) {
                 const message =
                     (data && (data.detail || data.message)) ||
                     `Refresh token gagal (HTTP ${response.status})`;
@@ -197,7 +225,9 @@ export const createAuthService = (): AuthService => {
             try {
                 if (cfg.logoutPath) {
                     const url = joinUrl(cfg.apiBaseUrl, cfg.logoutPath);
-                    await fetch(url, {
+
+                    await requestJson({
+                        url,
                         method: 'POST',
                         headers: {
                             Accept: 'application/json',
@@ -214,25 +244,67 @@ export const createAuthService = (): AuthService => {
             const cfg = getConfig(config);
             const url = joinUrl(cfg.apiBaseUrl, input);
 
-            const withAuth = (token: string | null): RequestInit => {
-                const headers = new Headers(init?.headers || {});
-                if (token) headers.set(cfg.authHeaderName, `${cfg.authHeaderPrefix} ${token}`);
-                return { ...init, headers };
+            const makeAxiosCall = async (token: string | null) => {
+                const headers = {
+                    ...toHeadersObject(init?.headers),
+                } as Record<string, string>;
+                if (token) headers[cfg.authHeaderName] = `${cfg.authHeaderPrefix} ${token}`;
+
+                const method = String(init?.method || 'GET').toUpperCase();
+                const data = (init as any)?.body;
+
+                return axios.request({
+                    url,
+                    method,
+                    headers,
+                    data,
+                    validateStatus: () => true,
+                });
             };
 
             const accessToken = service.getAccessToken(cfg);
-            const firstResponse = await fetch(url, withAuth(accessToken));
-            if (firstResponse.status !== 401) return firstResponse;
+            const first = await makeAxiosCall(accessToken);
+            if (first.status !== 401) {
+                const body =
+                    first.data instanceof Blob
+                        ? first.data
+                        : typeof first.data === 'string'
+                            ? first.data
+                            : JSON.stringify(first.data);
+
+                return new Response(body as any, {
+                    status: first.status,
+                    statusText: first.statusText,
+                    headers: first.headers as any,
+                });
+            }
 
             const refreshToken = service.getRefreshToken(cfg);
-            if (!refreshToken) return firstResponse;
+            if (!refreshToken) {
+                const body =
+                    typeof first.data === 'string' ? first.data : JSON.stringify(first.data ?? {});
+                return new Response(body, { status: first.status, statusText: first.statusText, headers: first.headers as any });
+            }
 
             try {
                 const tokens = await service.refreshAccessToken(cfg);
-                return fetch(url, withAuth(tokens.accessToken));
+                const second = await makeAxiosCall(tokens.accessToken);
+                const body =
+                    second.data instanceof Blob
+                        ? second.data
+                        : typeof second.data === 'string'
+                            ? second.data
+                            : JSON.stringify(second.data);
+                return new Response(body as any, {
+                    status: second.status,
+                    statusText: second.statusText,
+                    headers: second.headers as any,
+                });
             } catch {
                 service.clearSession(cfg);
-                return firstResponse;
+                const body =
+                    typeof first.data === 'string' ? first.data : JSON.stringify(first.data ?? {});
+                return new Response(body, { status: first.status, statusText: first.statusText, headers: first.headers as any });
             }
         },
     };

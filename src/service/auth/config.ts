@@ -1,4 +1,5 @@
 import type { AuthServiceConfig } from './types';
+import { APP_CONFIG } from '../../utils/constant';
 
 export const defaultConfig: Required<
     Pick<
@@ -12,6 +13,7 @@ export const defaultConfig: Required<
     >
 > = {
     apiBaseUrl:
+        (APP_CONFIG?.API_BASE_URL as string | undefined) ??
         ((import.meta as any)?.env?.VITE_API_BASE_URL as string | undefined) ??
         `${((import.meta as any)?.env?.VITE_API_HOST as string | undefined) ?? 'http://localhost:8000'}/api`,
     loginPath: 'auth/login',

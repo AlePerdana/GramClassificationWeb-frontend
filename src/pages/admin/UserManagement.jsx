@@ -1,46 +1,87 @@
-import React, { useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import PageHeader from '../../components/common/PageHeader';
+import SearchInput from '../../components/common/SearchInput';
+import Modal from '../../components/common/Modal';
+import { userService } from '../../service/userService';
 import { 
-  Search, 
   Plus, 
   Filter, 
   Edit, 
   Trash2, 
-  User, 
   Shield,       // Ikon Admin
   Stethoscope,  // Ikon Dokter
   Microscope,   // Ikon Analis
   CheckCircle,
   XCircle,
-  X
 } from 'lucide-react';
 
-// --- DUMMY DATA ---
-const initialUsers = [
-  { id: 1, name: 'Dr. Riro', username: 'dokter_riro', role: 'Dokter', status: 'Aktif' },
-  { id: 2, name: 'Ale Perdana', username: 'admin_ale', role: 'Admin', status: 'Aktif' },
-  { id: 3, name: 'Nufus', username: 'admin_nufus', role: 'Admin', status: 'Aktif' },
-  { id: 4, name: 'Andrey Analis', username: 'analis_andrey', role: 'Analis', status: 'Non-Aktif' },
-];
+const api = new userService();
+
+const normalizeRoleForUi = (role) => {
+  const v = String(role || '').toLowerCase();
+  if (v === 'admin') return 'Admin';
+  if (v === 'dokter' || v === 'doctor') return 'Dokter';
+  if (v === 'analis' || v === 'analyst') return 'Analis';
+  return role || '';
+};
+
+const normalizeRoleForApi = (role) => {
+  const v = String(role || '').toLowerCase();
+  if (v === 'admin') return 'admin';
+  if (v === 'dokter' || v === 'doctor') return 'dokter';
+  if (v === 'analis' || v === 'analyst') return 'analis';
+  return v || role;
+};
 
 const UserManagement = () => {
   // State
-  const [users, setUsers] = useState(initialUsers);
+  const [users, setUsers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [filterRole, setFilterRole] = useState('Semua'); // Filter Role
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   
   const [formData, setFormData] = useState({ name: '', username: '', password: '', role: 'Dokter', status: 'Aktif' });
   const [isEditing, setIsEditing] = useState(false);
   const [currentId, setCurrentId] = useState(null);
 
+  const fetchUsers = async () => {
+    setIsLoading(true);
+    setErrorMessage('');
+    try {
+      const res = await api.getUserList({ search: '' });
+      const list = Array.isArray(res?.data) ? res.data : [];
+      const mapped = list.map((u) => ({
+        id: u.id,
+        name: u.full_name,
+        username: u.username,
+        role: normalizeRoleForUi(u.role),
+        status: u.is_active ? 'Aktif' : 'Non-Aktif',
+      }));
+      setUsers(mapped);
+    } catch (err) {
+      setErrorMessage(err?.message || 'Gagal memuat data pengguna');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
   // Filter Logic
-  const filteredUsers = users.filter(u => {
-    const matchSearch = u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                        u.username.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchRole = filterRole === 'Semua' || u.role === filterRole;
-    return matchSearch && matchRole;
-  });
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      const matchSearch =
+        u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        u.username.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchRole = filterRole === 'Semua' || u.role === filterRole;
+      return matchSearch && matchRole;
+    });
+  }, [users, searchTerm, filterRole]);
 
   // Komponen Badge Role (Visualisasi Pembeda)
   const RoleBadge = ({ role }) => {
@@ -76,62 +117,75 @@ const UserManagement = () => {
     setShowModal(true);
   };
 
-  const handleSaveUser = (e) => {
+  const handleSaveUser = async (e) => {
     e.preventDefault();
-    if (isEditing) {
-      setUsers(users.map(u => u.id === currentId ? {
-        ...u,
-        name: formData.name,
-        username: formData.username,
-        role: formData.role,
-        status: formData.status,
-        ...(formData.password ? { password: formData.password } : {}),
-      } : u));
-    } else {
-      const newUser = {
-        id: users.length + 1,
-        ...formData,
-      };
-      setUsers([newUser, ...users]);
+    setErrorMessage('');
+
+    const payload = {
+      full_name: formData.name,
+      username: formData.username,
+      role: normalizeRoleForApi(formData.role),
+      is_active: formData.status === 'Aktif',
+      ...(formData.password ? { password: formData.password } : {}),
+    };
+
+    try {
+      if (isEditing) {
+        await api.updateUser(currentId, payload);
+      } else {
+        await api.createUser(payload);
+      }
+      setShowModal(false);
+      setIsEditing(false);
+      setCurrentId(null);
+      setFormData({ name: '', username: '', password: '', role: 'Dokter', status: 'Aktif' });
+      await fetchUsers();
+    } catch (err) {
+      setErrorMessage(err?.message || 'Gagal menyimpan data pengguna');
     }
-    setShowModal(false);
-    setIsEditing(false);
-    setCurrentId(null);
-    setFormData({ name: '', username: '', password: '', role: 'Dokter', status: 'Aktif' });
+  };
+
+  const handleDeleteClick = async (user) => {
+    const ok = window.confirm(`Hapus pengguna "${user.name}"?`);
+    if (!ok) return;
+
+    setErrorMessage('');
+    try {
+      await api.deleteUser(user.id);
+      await fetchUsers();
+    } catch (err) {
+      setErrorMessage(err?.message || 'Gagal menghapus pengguna');
+    }
   };
 
   return (
     <div className="space-y-6 bg-slate-50/80 p-4 rounded-2xl">
       
       {/* HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Manajemen Pengguna</h1>
-          <p className="text-gray-500 mt-1">Kelola akun akses untuk Dokter, Analis, dan Admin</p>
-        </div>
-        <button 
-          onClick={handleAddClick}
-          className="bg-primary hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-bold shadow-md flex items-center gap-2 transition-all active:scale-95"
-        >
-          <Plus size={20} /> Tambah Pengguna
-        </button>
-      </div>
+      <PageHeader
+        title="Manajemen Pengguna"
+        subtitle="Kelola akun akses untuk Dokter, Analis, dan Admin"
+        actions={(
+          <button
+            onClick={handleAddClick}
+            className="bg-primary hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-bold shadow-md flex items-center gap-2 transition-all active:scale-95"
+          >
+            <Plus size={20} /> Tambah Pengguna
+          </button>
+        )}
+      />
 
       {/* TABLE SECTION */}
       <div className="bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 overflow-hidden">
         
         {/* Toolbar */}
         <div className="p-5 border-b border-gray-100 flex justify-between items-center gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <input 
-              type="text" 
-              placeholder="Cari nama atau username..." 
-              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 text-sm transition-all"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+          <SearchInput
+            className="flex-1 max-w-md"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Cari nama atau username..."
+          />
           
           {/* Filter Dropdown (selaras dengan layout tren) */}
           <div className="flex gap-2 relative">
@@ -161,7 +215,26 @@ const UserManagement = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 text-sm">
-              {filteredUsers.map((user) => (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={5} className="p-10 text-center text-sm text-gray-500">
+                    Memuat data...
+                  </td>
+                </tr>
+              ) : errorMessage ? (
+                <tr>
+                  <td colSpan={5} className="p-10 text-center text-sm text-red-600 font-medium">
+                    {errorMessage}
+                  </td>
+                </tr>
+              ) : filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-10 text-center text-sm text-gray-500">
+                    Data tidak ditemukan
+                  </td>
+                </tr>
+              ) : (
+                filteredUsers.map((user) => (
                 <tr key={user.id} className="hover:bg-blue-50/30 transition-colors">
                   <td className="p-5 text-center">
                     <div className="flex items-center justify-center gap-3">
@@ -191,11 +264,18 @@ const UserManagement = () => {
                         >
                           <Edit size={16} />
                         </button>
-                        <button className="p-2 text-red-600 hover:bg-red-50 rounded-lg tooltip" title="Hapus"><Trash2 size={16} /></button>
+                        <button 
+                          onClick={() => handleDeleteClick(user)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg tooltip" 
+                          title="Hapus"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+              ))
+              )}
             </tbody>
           </table>
         </div>
@@ -211,15 +291,17 @@ const UserManagement = () => {
       </div>
 
       {/* --- MODAL TAMBAH USER --- */}
-      {showModal && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg md:max-w-xl max-h-[90vh] overflow-y-auto flex flex-col">
-            <div className="sticky top-0 z-10 p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h3 className="font-bold text-lg text-gray-800">{isEditing ? 'Edit Data Pengguna' : 'Tambah Pengguna Baru'}</h3>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
-            </div>
-            
-            <form onSubmit={handleSaveUser} className="p-6 space-y-4">
+      <Modal
+        isOpen={showModal}
+        title={isEditing ? 'Edit Data Pengguna' : 'Tambah Pengguna Baru'}
+        onClose={() => setShowModal(false)}
+      >
+            <form id="user-form" onSubmit={handleSaveUser} className="space-y-4">
+              {errorMessage ? (
+                <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm font-medium border border-red-100">
+                  {errorMessage}
+                </div>
+              ) : null}
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Nama Lengkap</label>
                 <input 
@@ -287,10 +369,7 @@ const UserManagement = () => {
                 <button type="submit" className="flex-1 py-2.5 bg-primary text-white rounded-lg font-bold hover:bg-blue-700 shadow-md">{isEditing ? 'Simpan Perubahan' : 'Simpan'}</button>
               </div>
             </form>
-          </div>
-        </div>,
-        document.body
-      )}
+      </Modal>
 
     </div>
   );

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Lock, Eye, EyeOff, Microscope } from 'lucide-react'; // Icon library
 import logoPens from '../../assets/react.svg'; // Ganti dengan path logo PENS kamu nanti
+import authService, { AuthError } from '../../service/authService';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -15,6 +16,7 @@ const Login = () => {
   // State untuk toggle lihat password
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Handle perubahan input
   const handleChange = (e) => {
@@ -25,22 +27,39 @@ const Login = () => {
     setError(''); // Reset error saat mengetik
   };
 
-  // Handle Submit (Simulasi Login Sementara)
-  const handleSubmit = (e) => {
+  // Handle Submit (Login ke API)
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // LOGIKA SEMENTARA (Hardcode) untuk tes navigasi antar role
-    // Nanti ini diganti dengan Axios ke Django
-    const { username, password } = formData;
+    if (isSubmitting) return;
 
-    if (username === 'admin') {
-      navigate('/admin');
-    } else if (username === 'dokter') {
-      navigate('/doctor');
-    } else if (username === 'analis') {
-      navigate('/analyst');
-    } else {
-      setError('Username atau password salah! (Coba: admin/dokter/analis)');
+    setIsSubmitting(true);
+    setError('');
+    try {
+      const username = String(formData.username || '').trim();
+      const password = String(formData.password || '');
+
+      await authService.login({ username, password });
+      const role = authService.getRole();
+
+      if (role === 'admin') {
+        navigate('/admin');
+      } else if (role === 'dokter') {
+        navigate('/doctor');
+      } else if (role === 'analis') {
+        navigate('/analyst');
+      } else {
+        authService.clearSession();
+        setError('Role akun tidak dikenali. Hubungi admin untuk pengaturan role.');
+      }
+    } catch (err) {
+      authService.clearSession();
+      if (err instanceof AuthError) {
+        setError(err.message || 'Login gagal.');
+      } else {
+        setError('Login gagal. Periksa koneksi atau username/password.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -136,9 +155,10 @@ const Login = () => {
                 {/* Tombol Login */}
                 <button
                     type="submit"
+                  disabled={isSubmitting}
                     className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-primary hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all transform hover:scale-[1.02]"
                 >
-                    Login
+                  {isSubmitting ? 'Memproses...' : 'Login'}
                 </button>
             </form>
 

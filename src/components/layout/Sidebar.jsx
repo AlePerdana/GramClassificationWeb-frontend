@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import authService from '../../service/authService';
 import { 
   LayoutDashboard, 
   Users, 
@@ -40,7 +41,7 @@ const Sidebar = ({ role, isOpen, toggleSidebar, isMobileOpen, setIsMobileOpen })
   const currentMenu = menus[role] || [];
 
   const handleLogout = () => {
-    // Nanti tambahkan logika hapus token di sini
+    authService.clearSession();
     setIsMobileOpen(false);
     navigate('/login');
   };

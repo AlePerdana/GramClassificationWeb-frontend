@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from './layouts/MainLayout';
 import Login from './pages/auth/Login';
+import authService from './service/authService';
 import DashboardAdmin from './pages/admin/Dashboard';
 import DashboardAnalyst from './pages/analyst/Dashboard';
 import DashboardDoctor from './pages/doctor/Dashboard';
@@ -19,6 +20,32 @@ import HistoryDetail from './pages/shared/HistoryDetail';
 // Dummy component untuk halaman lain (biar link di sidebar tidak 404)
 const PlaceholderPage = ({ title }) => <h1 className="text-xl text-gray-500">{title} (Segera Hadir)</h1>;
 
+const homePathForRole = (role) => {
+  if (role === 'admin') return '/admin';
+  if (role === 'dokter') return '/doctor';
+  if (role === 'analis') return '/analyst';
+  return '/login';
+};
+
+const RequireRole = ({ requiredRole, children }) => {
+  if (!authService.isLoggedIn()) {
+    authService.clearSession();
+    return <Navigate to="/login" replace />;
+  }
+
+  const currentRole = authService.getRole();
+  if (!currentRole) {
+    authService.clearSession();
+    return <Navigate to="/login" replace />;
+  }
+
+  if (requiredRole && currentRole !== requiredRole) {
+    return <Navigate to={homePathForRole(currentRole)} replace />;
+  }
+
+  return children;
+};
+
 function App() {
   return (
     <Router>
@@ -28,7 +55,14 @@ function App() {
         <Route path="/" element={<Navigate to="/login" replace />} />
 
         {/* --- ROUTE ADMIN --- */}
-        <Route path="/admin" element={<MainLayout role="admin" />}>
+        <Route
+          path="/admin"
+          element={
+            <RequireRole requiredRole="admin">
+              <MainLayout role="admin" />
+            </RequireRole>
+          }
+        >
           <Route index element={<DashboardAdmin />} />
           <Route path="patients" element={<PatientManagement />} />
           <Route path="users" element={<UserManagement />} />
@@ -36,7 +70,14 @@ function App() {
         </Route>
 
         {/* --- ROUTE DOKTER --- */}
-        <Route path="/doctor" element={<MainLayout role="dokter" />}>
+        <Route
+          path="/doctor"
+          element={
+            <RequireRole requiredRole="dokter">
+              <MainLayout role="dokter" />
+            </RequireRole>
+          }
+        >
           <Route index element={<DashboardDoctor />} />
           <Route path="validation" element={<ValidationList />} />
           <Route path="validate/:specimenId" element={<ValidationDetail />} />
@@ -46,10 +87,24 @@ function App() {
         </Route>
 
         {/* Halaman cetak laporan (fullscreen, tanpa sidebar) */}
-        <Route path="/doctor/report/:id" element={<MedicalReport />} />
+        <Route
+          path="/doctor/report/:id"
+          element={
+            <RequireRole requiredRole="dokter">
+              <MedicalReport />
+            </RequireRole>
+          }
+        />
 
         {/* --- ROUTE ANALIS --- */}
-        <Route path="/analyst" element={<MainLayout role="analis" />}>
+        <Route
+          path="/analyst"
+          element={
+            <RequireRole requiredRole="analis">
+              <MainLayout role="analis" />
+            </RequireRole>
+          }
+        >
           <Route index element={<DashboardAnalyst />} />
           <Route path="patients" element={<PatientList />} />
           <Route path="classification/:id" element={<AnalysisProcess />} />

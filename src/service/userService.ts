@@ -1,16 +1,9 @@
 import { paramWithSearch } from "../type/common";
-import { responseUser } from "../type/userType";
+import { responseUser, UserCreateRequest, UserUpdateRequest } from "../type/userType";
 import { APP_CONFIG } from "../utils/constant";
 import { authService } from "./authService";
 
-export interface UserUpsertRequest {
-    full_name: string;
-    username: string;
-    password?: string;
-    role: string;
-    is_active: boolean;
-    email?: string;
-}
+
 
 type JsonRecord = Record<string, unknown>;
 
@@ -53,7 +46,7 @@ export class userService {
         return data as unknown as responseUser;
     }
 
-    async createUser(payload: UserUpsertRequest): Promise<JsonRecord> {
+    async createUser(payload: UserCreateRequest): Promise<JsonRecord> {
         const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/users`, {
             method: 'POST',
             headers: {
@@ -70,7 +63,7 @@ export class userService {
         return (data as JsonRecord) || {};
     }
 
-    async updateUser(id: number | string, payload: UserUpsertRequest): Promise<JsonRecord> {
+    async updateUser(id: number | string, payload: UserUpdateRequest): Promise<JsonRecord> {
         const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/users/${id}`, {
             method: 'PUT',
             headers: {

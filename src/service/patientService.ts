@@ -3,6 +3,11 @@ import { responsePatient } from "../type/patientType";
 import { APP_CONFIG } from "../utils/constant";
 import { authService } from "./authService";
 
+export interface PatientQueueListParams extends paramWithSearch {
+    specimen_status?: string;
+    include_no_specimen?: boolean;
+}
+
 export interface PatientUpsertRequest {
     nama_lengkap: string;
     jenis_kelamin: string;
@@ -53,6 +58,33 @@ export class PatientService {
         return data as unknown as responsePatient;
     }
 
+    async getPatientQueueList(params?: PatientQueueListParams): Promise<responsePatient> {
+        const queryParams = new URLSearchParams();
+
+        if (params?.specimen_status) queryParams.append('specimen_status', params.specimen_status);
+        if (params?.include_no_specimen !== undefined) queryParams.append('include_no_specimen', String(params.include_no_specimen));
+        if (params?.search) queryParams.append('search', params.search);
+        if (params?.page) queryParams.append('page', params.page.toString());
+        if (params?.per_page) queryParams.append('per_page', params.per_page.toString());
+
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/patients?${queryParams.toString()}`, {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+
+        const data = await readJsonSafely(response);
+        if (!response.ok) {
+            throw new Error(getMessageFromJson(data) || `Failed to fetch patient list: ${response.statusText}`);
+        }
+        if (!data) {
+            throw new Error('Failed to fetch patient list: empty response body');
+        }
+        return data as unknown as responsePatient;
+    }
+
     async createPatient(payload: PatientUpsertRequest): Promise<JsonRecord> {
         const response = await fetch(`${APP_CONFIG.API_BASE_URL}/patients`, {
             method: 'POST',
@@ -71,7 +103,7 @@ export class PatientService {
     }
 
     async updatePatient(id: number | string, payload: PatientUpsertRequest): Promise<JsonRecord> {
-        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/patients/${id}`, {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/patients/${id}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -88,7 +120,7 @@ export class PatientService {
     }
 
     async deletePatient(id: number | string): Promise<JsonRecord> {
-        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/patients/${id}`, {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/patients/${id}`, {
             method: 'DELETE',
             headers: {
                 Accept: 'application/json',

@@ -11,20 +11,40 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 const AnalystPatientList = () => {
+  const API_BASE_URL = 'http://localhost:8000/api';
+  const LEGACY_STATUS = {
+    pending: 'Belum Diproses',
+    waitingValidation: 'Menunggu Dokter'
+  };
+
   const navigate = useNavigate();
   const [patients, setPatients] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('Menunggu Sampel'); // Default ke tugas yang belum selesai
+  const [filterStatus, setFilterStatus] = useState(LEGACY_STATUS.pending);
 
   useEffect(() => {
     const fetchPatients = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/patients');
-        if (response.ok) {
-          const data = await response.json();
-          setPatients(Array.isArray(data) ? data : []);
-        }
+        const [pendingRes, waitingRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/patients?specimen_status=pending&include_no_specimen=true`),
+          fetch(`${API_BASE_URL}/patients?specimen_status=waiting_validation&include_no_specimen=false`),
+        ]);
+
+        const pendingData = pendingRes.ok ? await pendingRes.json() : [];
+        const waitingData = waitingRes.ok ? await waitingRes.json() : [];
+
+        const normalizedPending = (Array.isArray(pendingData) ? pendingData : []).map((p) => ({
+          ...p,
+          queue_status: 'pending',
+        }));
+
+        const normalizedWaiting = (Array.isArray(waitingData) ? waitingData : []).map((p) => ({
+          ...p,
+          queue_status: 'waiting_validation',
+        }));
+
+        setPatients([...normalizedPending, ...normalizedWaiting]);
       } catch (error) {
         console.error('Gagal mengambil data pasien:', error);
       } finally {
@@ -33,18 +53,39 @@ const AnalystPatientList = () => {
     };
 
     fetchPatients();
-  }, []);
+  }, [API_BASE_URL]);
+
+  const getQueueStatus = (patient) => String(patient.queue_status || patient.specimen_status || patient.status || 'pending').toLowerCase();
+  const getLegacyStatus = (patient) => {
+    const status = getQueueStatus(patient);
+    return status === 'waiting_validation' ? LEGACY_STATUS.waitingValidation : LEGACY_STATUS.pending;
+  };
+
+  const formatWaktuMasuk = (value) => {
+    if (!value) return '-';
+
+    const raw = String(value).trim();
+    const isoNormalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    const date = new Date(isoNormalized);
+
+    if (Number.isNaN(date.getTime())) {
+      return raw.slice(0, 16).replace('T', ' ');
+    }
+
+    const pad = (num) => String(num).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
 
   // Filter Logic
   const filteredPatients = patients.filter((p) => {
     const patientName = (p.nama_lengkap || p.name || '').toLowerCase();
     const sampleCode = (p.id_pasien || p.sampleCode || '').toLowerCase();
-    const patientStatus = p.status || 'Menunggu Sampel';
+    const patientStatus = getLegacyStatus(p);
 
     const matchSearch =
       patientName.includes(searchTerm.toLowerCase()) ||
       sampleCode.includes(searchTerm.toLowerCase());
-    const matchStatus = filterStatus === 'Semua' || patientStatus === filterStatus;
+    const matchStatus = filterStatus === 'Semua Data' || patientStatus === filterStatus;
     return matchSearch && matchStatus;
   });
 
@@ -89,9 +130,9 @@ const AnalystPatientList = () => {
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
             >
-              <option value="Menunggu Sampel">Menunggu Sampel</option>
-              <option value="Selesai Klasifikasi">Selesai Klasifikasi</option>
-              <option value="Semua">Semua Data</option>
+              <option value="Belum Diproses">Belum Diproses</option>
+              <option value="Menunggu Dokter">Menunggu Dokter</option>
+              <option value="Semua Data">Semua Data</option>
             </select>
           </div>
         </div>
@@ -119,7 +160,7 @@ const AnalystPatientList = () => {
                     {/* Tanggal */}
                     <td className="p-5 text-center">
                       <div className="flex items-center justify-center gap-2 text-gray-600 font-medium">
-                        <span>{patient.date || '-'}</span>
+                        <span>{formatWaktuMasuk(patient.waktu_masuk || patient.created_at || patient.tanggal_masuk || patient.date)}</span>
                       </div>
                     </td>
 
@@ -143,10 +184,11 @@ const AnalystPatientList = () => {
                     {/* Status Badge */}
                     <td className="p-5 text-center">
                       {(() => {
-                        const patientStatus = patient.status || 'Menunggu Sampel';
+                        const queueStatus = getQueueStatus(patient);
+                        const patientStatus = getLegacyStatus(patient);
                         return (
                       <span className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center ${
-                        patientStatus === 'Menunggu Sampel' 
+                        queueStatus === 'pending' 
                           ? 'bg-yellow-50 text-yellow-700 border border-yellow-100' 
                           : 'bg-green-50 text-green-700 border border-green-100'
                       }`}>
@@ -158,7 +200,7 @@ const AnalystPatientList = () => {
 
                     {/* Tombol Aksi (Paling Penting) */}
                     <td className="p-5 text-center">
-                      {(patient.status || 'Menunggu Sampel') === 'Menunggu Sampel' ? (
+                      {getQueueStatus(patient) === 'pending' ? (
                         <button 
                           onClick={() => handleProcess(patient.id || patient.id_pasien)}
                           className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
@@ -170,7 +212,7 @@ const AnalystPatientList = () => {
                           disabled
                           className="bg-gray-100 text-gray-400 px-4 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 mx-auto cursor-not-allowed"
                         >
-                          <CheckCircle size={14} /> Selesai
+                          <CheckCircle size={14} /> Menunggu Dokter
                         </button>
                       )}
                     </td>

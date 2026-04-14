@@ -1,77 +1,76 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Search, 
   Filter, 
-  FileText, 
-  Microscope,
   CheckCircle,
-  Clock
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-// --- DUMMY DATA ---
-const validationQueue = [
-  { 
-    id: 1, 
-    name: 'Budi Santoso', 
-    sampleCode: 'SPL-2026-001', 
-    gender: 'L', 
-    age: 45, 
-    date: '27 Jan 2026, 09:00', 
-    analyst: 'Siti Aminah', 
-    priority: 'High',
-    status: 'Menunggu Validasi'
-  },
-  { 
-    id: 4, 
-    name: 'Dewi Sartika', 
-    sampleCode: 'SPL-2026-004', 
-    gender: 'P', 
-    age: 50, 
-    date: '27 Jan 2026, 10:15', 
-    analyst: 'Rudi Hartono', 
-    priority: 'Normal',
-    status: 'Menunggu Validasi'
-  },
-  { 
-    id: 5, 
-    name: 'Siti Aminah', 
-    sampleCode: 'SPL-2026-002', 
-    gender: 'P', 
-    age: 32, 
-    date: '26 Jan 2026, 08:30', 
-    analyst: 'Budi Santoso', 
-    priority: 'Normal',
-    status: 'Selesai Validasi'
-  },
-  { 
-    id: 6, 
-    name: 'Rudi Hartono', 
-    sampleCode: 'SPL-2026-003', 
-    gender: 'L', 
-    age: 38, 
-    date: '25 Jan 2026, 15:45', 
-    analyst: 'Dewi Sartika', 
-    priority: 'High',
-    status: 'Selesai Validasi'
-  },
-];
+const API_BASE_URL = 'http://localhost:8000';
+const LEGACY_STATUS = {
+  pending: 'Menunggu Validasi',
+  done: 'Selesai Validasi'
+};
 
 const ValidationList = () => {
   const navigate = useNavigate();
+  const [queueData, setQueueData] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('Menunggu Validasi');
 
+  useEffect(() => {
+    const fetchQueue = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/doctor/doctor-queue`);
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result?.message || 'Gagal mengambil antrean dokter.');
+        }
+
+        const payload = Array.isArray(result)
+          ? result
+          : Array.isArray(result?.data)
+            ? result.data
+            : [];
+
+        setQueueData(payload);
+      } catch (error) {
+        console.error('Gagal mengambil antrean:', error);
+        setQueueData([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchQueue();
+  }, []);
+
+  const resolveLegacyStatus = (item) => {
+    const isDone =
+      item?.is_validated === true ||
+      item?.sudah_divalidasi === true ||
+      Boolean(item?.validated_at) ||
+      Boolean(item?.tanggal_validasi);
+
+    return isDone ? LEGACY_STATUS.done : LEGACY_STATUS.pending;
+  };
+
   // Filter Logic
-  const filteredPatients = validationQueue.filter(p => {
-    const matchSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-              p.sampleCode.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchStatus = filterStatus === 'Semua' || p.status === filterStatus;
+  const filteredPatients = queueData.filter((p) => {
+    const patientName = String(p.nama_pasien || p.name || '').toLowerCase();
+    const specimenCode = String(p.kode_sampel || p.sampleCode || p.id_specimen || '').toLowerCase();
+    const displayStatus = resolveLegacyStatus(p);
+
+    const matchSearch = patientName.includes(searchTerm.toLowerCase()) || specimenCode.includes(searchTerm.toLowerCase());
+    const matchStatus = filterStatus === 'Semua' || displayStatus === filterStatus;
     return matchSearch && matchStatus;
   });
 
-  const handleValidate = (id) => {
-    navigate(`/doctor/validation/${id}`);
+  const handleValidate = (specimenId) => {
+    navigate(`/doctor/validate/${specimenId}`);
   };
 
   return (
@@ -129,13 +128,25 @@ const ValidationList = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filteredPatients.length > 0 ? (
-                filteredPatients.map((patient) => (
-                  <tr key={patient.id} className="hover:bg-blue-50/30 transition-colors group">
+              {isLoading ? (
+                <tr>
+                  <td colSpan="6" className="p-10 text-center text-gray-500">Memuat antrean validasi...</td>
+                </tr>
+              ) : filteredPatients.length > 0 ? (
+                filteredPatients.map((patient) => {
+                  const specimenId = patient.id_specimen ?? patient.specimen_id ?? patient.id;
+                  const displayStatus = resolveLegacyStatus(patient);
+                  const patientName = patient.nama_pasien || patient.name || '-';
+                  const sampleCode = patient.kode_sampel || patient.sampleCode || `SPL-${specimenId ?? '-'}`;
+                  const analystName = patient.analis_pengirim || patient.analyst || '-';
+                  const uploadTime = patient.tanggal_upload || patient.uploaded_at || patient.date || '-';
+
+                  return (
+                  <tr key={specimenId} className="hover:bg-blue-50/30 transition-colors group">
                     {/* Tanggal */}
                     <td className="p-5 text-center">
                       <div className="flex items-center justify-center gap-2 text-gray-600 font-medium">
-                        <span>{patient.date}</span>
+                        <span>{uploadTime}</span>
                       </div>
                     </td>
 
@@ -143,7 +154,7 @@ const ValidationList = () => {
                     <td className="p-5 text-center">
                       <div className="flex items-center justify-center gap-3">
                         <div>
-                          <p className="font-bold text-gray-800 text-sm">{patient.name}</p>
+                          <p className="font-bold text-gray-800 text-sm">{patientName}</p>
                         </div>
                       </div>
                     </td>
@@ -151,24 +162,24 @@ const ValidationList = () => {
                     {/* Kode Sampel */}
                     <td className="p-5 text-center">
                       <span className="text-[10px] font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 border border-gray-200 inline-block">
-                        {patient.sampleCode}
+                        {sampleCode}
                       </span>
                     </td>
 
                     {/* Analis */}
                     <td className="p-5 text-center text-sm text-gray-600">
-                      {patient.analyst}
+                      {analystName}
                     </td>
 
                     {/* Status (Konsisten dengan Analis) */}
                     <td className="p-5 text-center">
-                      {patient.status === 'Menunggu Validasi' ? (
+                      {displayStatus === 'Menunggu Validasi' ? (
                         <span className="bg-yellow-50 text-yellow-700 px-3 py-1 rounded-full text-xs font-bold border border-yellow-100 inline-flex items-center justify-center w-fit mx-auto">
-                          {patient.status}
+                          {displayStatus}
                         </span>
                       ) : (
                         <span className="bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-bold border border-green-100 inline-flex items-center justify-center w-fit mx-auto">
-                          {patient.status}
+                          {displayStatus}
                         </span>
                       )}
                     </td>
@@ -176,7 +187,7 @@ const ValidationList = () => {
                     {/* Tombol Aksi */}
                     <td className="p-5 text-center">
                       <button 
-                        onClick={() => handleValidate(patient.id)}
+                        onClick={() => handleValidate(specimenId)}
                         className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
                       >
                         Validasi
@@ -184,7 +195,8 @@ const ValidationList = () => {
                     </td>
 
                   </tr>
-                ))
+                );
+                })
               ) : (
                 <tr>
                   <td colSpan="6" className="p-10 text-center">
@@ -201,7 +213,7 @@ const ValidationList = () => {
 
         {/* Footer Pagination (Static) */}
         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm text-gray-500">
-          <span>Menampilkan {filteredPatients.length} dari {validationQueue.length} data</span>
+          <span>Menampilkan {filteredPatients.length} dari {queueData.length} data</span>
           <div className="flex gap-2">
             <button className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50" disabled>Sebelumnya</button>
             <button className="px-3 py-1 border border-gray-200 rounded bg-white hover:bg-gray-50">Berikutnya</button>

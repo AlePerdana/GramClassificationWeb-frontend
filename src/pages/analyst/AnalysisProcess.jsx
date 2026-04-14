@@ -31,8 +31,9 @@ const AnalysisProcess = () => {
   const [rois, setRois] = useState({}); 
   const [status, setStatus] = useState('idle');
   const [isUploading, setIsUploading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
-  const [result, setResult] = useState(null);
+  const [, setResult] = useState(null);
   const [imageMeta, setImageMeta] = useState({});
 
   // Interaction Refs & State
@@ -149,7 +150,7 @@ const AnalysisProcess = () => {
         formData.append('patient_id', id);
         formData.append('file', file);
 
-        const response = await fetch(`${API_BASE_URL}/analysis/upload-specimen`, {
+        const response = await fetch(`${API_BASE_URL}/analyst/upload-specimen`, {
           method: 'POST',
           body: formData,
         });
@@ -359,6 +360,9 @@ const AnalysisProcess = () => {
         y: Math.round(actualY),
         width: Math.round(Math.max(0, actualWidth)),
         height: Math.round(Math.max(0, actualHeight)),
+        source:
+          roi.source ||
+          (String(roi.label || '').toLowerCase() === 'auto' ? 'auto' : 'manual'),
       };
     });
   };
@@ -466,6 +470,10 @@ const AnalysisProcess = () => {
 
   // --- FUNGSI AUTO CROP (YOLO DETECTION) ---
   const handleAutoDetect = async () => {
+    if (status === 'auto_detecting' || status === 'analyzing') {
+      return;
+    }
+
     if (images.length === 0) {
       alert('Harap unggah gambar terlebih dahulu!');
       return;
@@ -482,7 +490,7 @@ const AnalysisProcess = () => {
     setStatus('auto_detecting');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/analysis/detect/${specimenId}`, {
+      const response = await fetch(`${API_BASE_URL}/analyst/detect/${specimenId}`, {
         method: 'POST'
       });
 
@@ -539,17 +547,24 @@ const AnalysisProcess = () => {
           height: displayHeight,
           status: 'pending',
           label: 'Auto',
+          source: 'auto',
           confidence: item.yolo_confidence ?? item.confidence,
         };
       });
 
       setRois((prev) => {
         const current = prev[activeImgIdx] || [];
+        const preservedManual = current.filter((roi) => {
+          const src = String(roi?.source || roi?.label || '').toLowerCase();
+          return src !== 'auto';
+        });
         return {
           ...prev,
-          [activeImgIdx]: [...current, ...detectedRois]
+          [activeImgIdx]: [...preservedManual, ...detectedRois]
         };
       });
+
+      setResult(null);
     } catch (error) {
       console.error('YOLO Fetch Error:', error);
       alert('Terjadi kesalahan jaringan saat menghubungi server AI.');
@@ -561,6 +576,13 @@ const AnalysisProcess = () => {
 
   // PROSES KLASIFIKASI MANUAL/BATCH
   const handleStartClassification = async () => {
+    const normalizeGramLabel = (value) => {
+      const v = String(value || '').trim().toLowerCase();
+      if (['positif', 'positive', 'gram_positive', 'gram positif', '+'].includes(v)) return 'Positif';
+      if (['negatif', 'negative', 'gram_negative', 'gram negatif', '-'].includes(v)) return 'Negatif';
+      return String(value || '');
+    };
+
     if (images.length === 0) {
       alert('Harap unggah gambar terlebih dahulu.');
       return;
@@ -592,10 +614,18 @@ const AnalysisProcess = () => {
           throw new Error(`ROI gambar ke-${idx + 1} tidak valid`);
         }
 
-        const classifyResponse = await fetch(`${API_BASE_URL}/analysis/classify/${specimenId}`, {
+        const finalRoisInNaturalPixels = naturalRois.map((roi) => ({
+          x: roi.x,
+          y: roi.y,
+          width: roi.width,
+          height: roi.height,
+          source: roi.source || 'manual',
+        }));
+
+        const classifyResponse = await fetch(`${API_BASE_URL}/analyst/classify/${specimenId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rois: naturalRois }),
+          body: JSON.stringify({ rois: finalRoisInNaturalPixels }),
         });
 
         if (!classifyResponse.ok) {
@@ -604,13 +634,31 @@ const AnalysisProcess = () => {
         }
 
         const classifyData = await classifyResponse.json();
-        const aiResults = Array.isArray(classifyData?.results) ? classifyData.results : [];
-        aggregatedResults.push(...aiResults);
+        const aiResults = Array.isArray(classifyData?.results)
+          ? classifyData.results
+          : Array.isArray(classifyData?.classifications)
+            ? classifyData.classifications
+            : Array.isArray(classifyData?.data?.results)
+              ? classifyData.data.results
+              : Array.isArray(classifyData?.data?.classifications)
+                ? classifyData.data.classifications
+                : [];
+        const normalizedResults = aiResults.map((r) => ({
+          ...r,
+          specimen_id: r.specimen_id ?? specimenId,
+          classification_gram: normalizeGramLabel(
+            r.classification_gram ?? r.aiGram ?? r.gram ?? r.prediction_gram
+          ),
+          classification_confidence: Number(r.classification_confidence ?? r.confidence ?? 0),
+          image_file_name: r.image_file_name ?? r.crop_url ?? '',
+        }));
+
+        aggregatedResults.push(...normalizedResults);
 
         const current = nextRoisState[idx] || [];
         nextRoisState[idx] = current.map((roi, roiIdx) => {
           const roiId = roi.id ?? roiIdx;
-          const ai = aiResults.find((r) => (r.roi_id ?? r.id) === roiId) || aiResults[roiIdx];
+          const ai = normalizedResults.find((r) => (r.roi_id ?? r.id) === roiId) || normalizedResults[roiIdx];
           if (!ai) return roi;
           return {
             ...roi,
@@ -626,8 +674,8 @@ const AnalysisProcess = () => {
 
       setRois(nextRoisState);
 
-      const gramPositive = aggregatedResults.filter((r) => (r.classification_gram ?? r.aiGram) === 'Positif').length;
-      const gramNegative = aggregatedResults.filter((r) => (r.classification_gram ?? r.aiGram) === 'Negatif').length;
+      const gramPositive = aggregatedResults.filter((r) => normalizeGramLabel(r.classification_gram ?? r.aiGram) === 'Positif').length;
+      const gramNegative = aggregatedResults.filter((r) => normalizeGramLabel(r.classification_gram ?? r.aiGram) === 'Negatif').length;
 
       setResult({
         gramPositive,
@@ -641,6 +689,7 @@ const AnalysisProcess = () => {
         ]
       });
 
+      setIsSubmitted(true);
       setStatus('done');
       setMode('view');
     } catch (error) {
@@ -799,9 +848,48 @@ const AnalysisProcess = () => {
   };
 
   const currentRois = rois[activeImgIdx] || [];
+  const doneRois = Object.values(rois)
+    .flat()
+    .filter((roi) => roi?.status === 'done');
+  const normalizeGramForSummary = (value) => {
+    const v = String(value || '').trim().toLowerCase();
+    if (['positif', 'positive', 'gram_positive', 'gram positif', '+'].includes(v)) return 'Positif';
+    if (['negatif', 'negative', 'gram_negative', 'gram negatif', '-'].includes(v)) return 'Negatif';
+    return String(value || '');
+  };
+  const positiveCount = doneRois.filter((r) => normalizeGramForSummary(r.aiGram) === 'Positif').length;
+  const negativeCount = doneRois.filter((r) => normalizeGramForSummary(r.aiGram) === 'Negatif').length;
+  const totalDoneCount = doneRois.length;
   const totalRois = images.reduce((sum, _, idx) => sum + ((rois[idx] || []).length), 0);
   const imagesWithoutRoiCount = images.reduce((sum, _, idx) => sum + (((rois[idx] || []).length === 0 ? 1 : 0)), 0);
   const canStartClassification = images.length > 0 && totalRois > 0 && imagesWithoutRoiCount === 0;
+
+  const handleSubmitToDoctor = async () => {
+    if (isSubmitting || isSubmitted) {
+      return;
+    }
+
+    if (doneRois.length === 0) {
+      alert('Belum ada hasil klasifikasi untuk dikirim.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setStatus('submitting');
+    try {
+      setIsSubmitted(true);
+      alert('Hasil classify sudah tersimpan dan masuk antrean dokter.');
+      setTimeout(() => {
+        navigate('/analyst/history');
+      }, 500);
+    } catch (error) {
+      console.error('Submit error:', error);
+      alert('Terjadi kesalahan koneksi saat submit.');
+    } finally {
+      setIsSubmitting(false);
+      setStatus('idle');
+    }
+  };
 
   // --- LOGIKA STEPPER OPERASIONAL (UPDATE) ---
   let currentStep = 1;
@@ -1186,25 +1274,22 @@ const AnalysisProcess = () => {
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div className="bg-blue-50 p-3 rounded-lg text-center">
                     <span className="block text-[10px] text-blue-500 font-bold">GRAM +</span>
-                    <span className="text-xl font-bold text-blue-700">{result.gramPositive}</span>
+                    <span className="text-xl font-bold text-blue-700">{positiveCount}</span>
                   </div>
                   <div className="bg-red-50 p-3 rounded-lg text-center">
                     <span className="block text-[10px] text-red-500 font-bold">GRAM -</span>
-                    <span className="text-xl font-bold text-red-700">{result.gramNegative}</span>
+                    <span className="text-xl font-bold text-red-700">{negativeCount}</span>
                   </div>
                 </div>
+                <p className="text-xs text-slate-500 text-center mb-4">Total hasil: {totalDoneCount}</p>
 
                 <div className="space-y-2">
                   <button
-                    onClick={() => {
-                      setIsSubmitted(true);
-                      // TODO: Tambahkan API submit final ke antrean dokter di sini.
-                      alert('Hasil analisis berhasil disimpan dan diteruskan ke antrean dokter!');
-                      navigate('/analyst/history');
-                    }}
-                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                    onClick={handleSubmitToDoctor}
+                    disabled={isSubmitting || isSubmitted}
+                    className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 shadow-lg shadow-green-200 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <Save size={18} /> Simpan & Kirim ke Dokter
+                    <CheckCircle size={18} /> {isSubmitting ? 'Mengirim...' : isSubmitted ? 'Terkirim' : 'Submit ke Dokter'}
                   </button>
                   <button onClick={handleReset} className="w-full py-2.5 border border-gray-200 text-gray-600 rounded-lg font-medium text-sm hover:bg-gray-50">
                     Analisis Ulang
@@ -1219,9 +1304,10 @@ const AnalysisProcess = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <button 
                     onClick={handleAutoDetect}
+                    disabled={status === 'auto_detecting' || status === 'analyzing'}
                     className={`p-3 rounded-xl border-2 text-left transition-all ${
                       mode === 'auto_detect' ? 'border-green-600 bg-green-50' : 'border-slate-200 hover:border-green-400'
-                    }`}
+                    } ${(status === 'auto_detecting' || status === 'analyzing') ? 'opacity-60 cursor-not-allowed' : ''}`}
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <Scan size={18} className="text-green-600" />
@@ -1438,6 +1524,7 @@ const AnalysisProcess = () => {
         </div>
       </div>
     )}
+
     </>
   );
 };

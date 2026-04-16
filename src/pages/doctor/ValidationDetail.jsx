@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import authService from '../../service/authService';
 import {
   ArrowLeft,
   ZoomIn,
@@ -69,7 +70,20 @@ const ValidationDetail = () => {
       setError('');
 
       try {
-        const response = await fetch(`${API_HOST}/api/doctor/specimen-details/${resolvedSpecimenId}`);
+        const response = await fetch(`${API_HOST}/api/doctor/specimen-details/${resolvedSpecimenId}`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...authService.getAuthorizationHeader(),
+          },
+        });
+
+        if (response.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
+
         const result = await response.json();
 
         if (!response.ok) {
@@ -192,9 +206,19 @@ const ValidationDetail = () => {
     try {
       const response = await fetch(`${API_HOST}/api/doctor/submit-validation`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...authService.getAuthorizationHeader(),
+        },
         body: JSON.stringify(payload)
       });
+
+      if (response.status === 401) {
+        authService.clearSession();
+        navigate('/login');
+        return;
+      }
 
       const result = await response.json();
       if (!response.ok || result?.success === false) {

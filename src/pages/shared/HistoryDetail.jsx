@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import authService from '../../service/authService';
 import {
   ArrowLeft, Printer, Edit,
   Info, User, Activity, FileText
@@ -48,7 +49,20 @@ const HistoryDetail = () => {
       setIsLoading(true);
       setError('');
       try {
-        const response = await fetch(`${API_HOST}/api/doctor/specimen-details/${id}`);
+        const response = await fetch(`${API_HOST}/api/doctor/specimen-details/${id}`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...authService.getAuthorizationHeader(),
+          },
+        });
+
+        if (response.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
+
         const result = await response.json();
 
         if (!response.ok) {

@@ -6,7 +6,9 @@ import Modal from '../../components/common/Modal';
 import { 
   Plus, 
   Edit,
-  Trash2
+  Trash2,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react';
 
 const getDefaultWaktuMasuk = () => {
@@ -39,8 +41,20 @@ const PatientManagement = () => {
   // --- STATE UNTUK EDIT ---
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [toast, setToast] = useState({
+    open: false,
+    type: 'success',
+    message: '',
+  });
 
   const patientService = new PatientService();
+
+  const showToast = (type, message) => {
+    setToast({ open: true, type, message });
+    window.setTimeout(() => {
+      setToast((prev) => (prev.open ? { ...prev, open: false } : prev));
+    }, 4000);
+  };
 
   // Filter Logic
   const filteredPatients = patients.filter(p => {
@@ -110,11 +124,11 @@ const PatientManagement = () => {
     if (isEditing) {
       try {
         if (!editId) {
-          alert('Gagal: ID pasien tidak ditemukan.');
+          showToast('error', 'Gagal: ID pasien tidak ditemukan.');
           return;
         }
         await patientService.updatePatient(editId, payload);
-        alert('Data pasien berhasil diperbarui!');
+        showToast('success', 'Data pasien berhasil diperbarui!');
         setShowModal(false);
         setIsEditing(false);
         setEditId(null);
@@ -128,14 +142,14 @@ const PatientManagement = () => {
         fetchPatients();
       } catch (error) {
         console.error('Error updating patient:', error);
-        alert(`Gagal memperbarui pasien: ${error?.message || 'Terjadi kesalahan.'}`);
+        showToast('error', `Gagal memperbarui pasien: ${error?.message || 'Terjadi kesalahan.'}`);
       }
       return;
     }
 
     try {
       await patientService.createPatient(payload);
-      alert('Pasien berhasil ditambahkan!');
+      showToast('success', 'Pasien berhasil ditambahkan!');
       setShowModal(false);
       setFormData({
         nama_lengkap: '',
@@ -147,7 +161,7 @@ const PatientManagement = () => {
       fetchPatients();
     } catch (error) {
       console.error('Error adding patient:', error);
-      alert(`Gagal menambah pasien: ${error?.message || 'Terjadi kesalahan jaringan.'}`);
+      showToast('error', `Gagal menambah pasien: ${error?.message || 'Terjadi kesalahan jaringan.'}`);
     }
   };
 
@@ -157,11 +171,11 @@ const PatientManagement = () => {
       (async () => {
         try {
           await patientService.deletePatient(id);
-          alert('Pasien berhasil dihapus!');
+          showToast('success', 'Pasien berhasil dihapus!');
           fetchPatients();
         } catch (error) {
           console.error('Error deleting patient:', error);
-          alert(`Gagal menghapus pasien: ${error?.message || 'Terjadi kesalahan.'}`);
+          showToast('error', `Gagal menghapus pasien: ${error?.message || 'Terjadi kesalahan.'}`);
         }
       })();
     }
@@ -182,6 +196,28 @@ const PatientManagement = () => {
 
   return (
     <div className="space-y-6 bg-slate-50/80 p-4 rounded-2xl">
+      {toast.open && (
+        <div className="fixed top-4 right-4 z-50">
+          <div className={`min-w-[280px] max-w-sm px-4 py-3 rounded-xl shadow-lg border text-sm ${toast.type === 'success' ? 'bg-white border-green-200 text-green-700' : 'bg-white border-red-200 text-red-700'}`}>
+            <div className="flex items-start gap-2">
+              {toast.type === 'success' ? (
+                <CheckCircle size={18} className="mt-0.5" />
+              ) : (
+                <AlertCircle size={18} className="mt-0.5" />
+              )}
+              <div className="font-semibold leading-snug">{toast.message}</div>
+              <button
+                type="button"
+                onClick={() => setToast((prev) => ({ ...prev, open: false }))}
+                className="ml-auto text-gray-400 hover:text-gray-600"
+                aria-label="Tutup"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* HEADER & ACTIONS */}
       <PageHeader

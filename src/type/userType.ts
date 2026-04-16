@@ -22,7 +22,7 @@ interface UserRequest {
     password?: string;
     role: string;
     is_active?: boolean;
-    email?: string;
+    email?: string | null;
 }
 
 export interface UserUpdateRequest extends UserRequest {

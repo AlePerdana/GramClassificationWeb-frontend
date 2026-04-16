@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import authService from '../../service/authService';
 import { 
   Search, 
   Filter, 
@@ -23,7 +24,21 @@ const ValidationList = () => {
     const fetchQueue = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch(`${API_BASE_URL}/api/doctor/doctor-queue`);
+        const headers = authService.getAuthorizationHeader();
+        const response = await fetch(`${API_BASE_URL}/api/doctor/doctor-queue`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...headers,
+          },
+        });
+
+        if (response.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
+
         const result = await response.json();
 
         if (!response.ok) {
@@ -33,8 +48,8 @@ const ValidationList = () => {
         const payload = Array.isArray(result)
           ? result
           : Array.isArray(result?.data)
-            ? result.data
-            : [];
+          ? result.data
+          : [];
 
         setQueueData(payload);
       } catch (error) {
@@ -46,7 +61,7 @@ const ValidationList = () => {
     };
 
     fetchQueue();
-  }, []);
+  }, [navigate]);
 
   const resolveLegacyStatus = (item) => {
     const isDone =

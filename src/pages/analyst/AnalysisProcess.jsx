@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   Upload, X, Play, Save, ArrowLeft, ArrowRight, Microscope, 
   CheckCircle, Activity, Maximize2, AlertTriangle, 
-  Info, ZoomIn, ZoomOut, Move, Crop, Scan, Trash,
+  Info, ZoomIn, ZoomOut, Move, Crop, Scan, Trash, AlertCircle,
   Hand, MousePointer2
 } from 'lucide-react';
 
@@ -35,6 +35,11 @@ const AnalysisProcess = () => {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [, setResult] = useState(null);
   const [imageMeta, setImageMeta] = useState({});
+  const [toast, setToast] = useState({
+    open: false,
+    type: 'success',
+    message: '',
+  });
 
   // Interaction Refs & State
   const imgContainerRef = useRef(null);
@@ -56,6 +61,13 @@ const AnalysisProcess = () => {
     if (!images.length) return;
     setActiveImgIdx(prev => (prev - 1 + images.length) % images.length);
   }, [images.length]);
+
+  const showToast = useCallback((type, message) => {
+    setToast({ open: true, type, message });
+    window.setTimeout(() => {
+      setToast((prev) => (prev.open ? { ...prev, open: false } : prev));
+    }, 4000);
+  }, []);
 
   // --- SHORTCUTS KEYBOARD ---
   useEffect(() => {
@@ -135,7 +147,7 @@ const AnalysisProcess = () => {
     const invalidFiles = files.filter((file) => !validTypes.includes(file.type));
 
     if (invalidFiles.length > 0) {
-      alert('Format file tidak valid! Harap hanya unggah gambar berformat JPG atau PNG.');
+      showToast('error', 'Format file tidak valid! Harap hanya unggah gambar berformat JPG atau PNG.');
       e.target.value = '';
       return;
     }
@@ -179,7 +191,7 @@ const AnalysisProcess = () => {
       }
 
       if (uploadedImageItems.length === 0) {
-        alert('Tidak ada gambar yang berhasil diunggah ke server.');
+        showToast('error', 'Tidak ada gambar yang berhasil diunggah ke server.');
         return;
       }
 
@@ -191,7 +203,7 @@ const AnalysisProcess = () => {
       setIsSubmitted(false);
     } catch (error) {
       console.error('Error upload specimen awal:', error);
-      alert('Gagal mengunggah gambar ke server.');
+      showToast('error', 'Gagal mengunggah gambar ke server.');
     } finally {
       setIsUploading(false);
       e.target.value = '';
@@ -475,14 +487,14 @@ const AnalysisProcess = () => {
     }
 
     if (images.length === 0) {
-      alert('Harap unggah gambar terlebih dahulu!');
+      showToast('error', 'Harap unggah gambar terlebih dahulu!');
       return;
     }
 
     const activeImage = images[activeImgIdx];
     const specimenId = activeImage?.specimenId;
     if (!specimenId) {
-      alert('Specimen ID untuk gambar aktif tidak ditemukan. Silakan upload ulang.');
+      showToast('error', 'Specimen ID untuk gambar aktif tidak ditemukan. Silakan upload ulang.');
       return;
     }
 
@@ -497,7 +509,7 @@ const AnalysisProcess = () => {
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         console.error('YOLO Error Payload:', errData);
-        alert('Gagal memproses gambar otomatis. Pastikan AI backend menyala.');
+        showToast('error', 'Gagal memproses gambar otomatis. Pastikan AI backend menyala.');
         return;
       }
 
@@ -507,7 +519,7 @@ const AnalysisProcess = () => {
         : (Array.isArray(data?.detections) ? data.detections : []);
 
       if (results.length === 0) {
-        alert('YOLO tidak menemukan objek pada gambar ini.');
+        showToast('error', 'YOLO tidak menemukan objek pada gambar ini.');
         return;
       }
 
@@ -567,7 +579,7 @@ const AnalysisProcess = () => {
       setResult(null);
     } catch (error) {
       console.error('YOLO Fetch Error:', error);
-      alert('Terjadi kesalahan jaringan saat menghubungi server AI.');
+      showToast('error', 'Terjadi kesalahan jaringan saat menghubungi server AI.');
     } finally {
       setStatus('idle');
       setMode('drag');
@@ -584,7 +596,7 @@ const AnalysisProcess = () => {
     };
 
     if (images.length === 0) {
-      alert('Harap unggah gambar terlebih dahulu.');
+      showToast('error', 'Harap unggah gambar terlebih dahulu.');
       return;
     }
 
@@ -593,7 +605,7 @@ const AnalysisProcess = () => {
       .filter((x) => x.count === 0);
 
     if (imagesWithoutRoi.length > 0) {
-      alert(`Masih ada ${imagesWithoutRoi.length} gambar tanpa Bounding Box. Lengkapi semua gambar sebelum klasifikasi.`);
+      showToast('error', `Masih ada ${imagesWithoutRoi.length} gambar tanpa Bounding Box. Lengkapi semua gambar sebelum klasifikasi.`);
       return;
     }
 
@@ -695,7 +707,7 @@ const AnalysisProcess = () => {
     } catch (error) {
       console.error('Gagal klasifikasi:', error);
       setStatus('idle');
-      alert('Terjadi kesalahan saat memproses gambar.');
+      showToast('error', 'Terjadi kesalahan saat memproses gambar.');
     }
   };
 
@@ -870,7 +882,7 @@ const AnalysisProcess = () => {
     }
 
     if (doneRois.length === 0) {
-      alert('Belum ada hasil klasifikasi untuk dikirim.');
+      showToast('error', 'Belum ada hasil klasifikasi untuk dikirim.');
       return;
     }
 
@@ -878,13 +890,13 @@ const AnalysisProcess = () => {
     setStatus('submitting');
     try {
       setIsSubmitted(true);
-      alert('Hasil classify sudah tersimpan dan masuk antrean dokter.');
+      showToast('success', 'Hasil classify sudah tersimpan dan masuk antrean dokter.');
       setTimeout(() => {
         navigate('/analyst/history');
       }, 500);
     } catch (error) {
       console.error('Submit error:', error);
-      alert('Terjadi kesalahan koneksi saat submit.');
+      showToast('error', 'Terjadi kesalahan koneksi saat submit.');
     } finally {
       setIsSubmitting(false);
       setStatus('idle');
@@ -917,6 +929,28 @@ const AnalysisProcess = () => {
 
   return (
     <>
+    {toast.open && (
+      <div className="fixed top-4 right-4 z-[10000]">
+        <div className={`min-w-[280px] max-w-sm px-4 py-3 rounded-xl shadow-lg border text-sm ${toast.type === 'success' ? 'bg-white border-green-200 text-green-700' : 'bg-white border-red-200 text-red-700'}`}>
+          <div className="flex items-start gap-2">
+            {toast.type === 'success' ? (
+              <CheckCircle size={18} className="mt-0.5" />
+            ) : (
+              <AlertCircle size={18} className="mt-0.5" />
+            )}
+            <div className="font-semibold leading-snug">{toast.message}</div>
+            <button
+              type="button"
+              onClick={() => setToast((prev) => ({ ...prev, open: false }))}
+              className="ml-auto text-gray-400 hover:text-gray-600"
+              aria-label="Tutup"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     <div className="max-w-7xl mx-auto pb-10 min-h-[calc(100vh-100px)] lg:h-[calc(100vh-100px)] flex flex-col bg-slate-50/80 p-2 md:p-4 rounded-2xl relative">
       {(status === 'analyzing' || status === 'auto_detecting') && (
         <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm transition-all duration-300">

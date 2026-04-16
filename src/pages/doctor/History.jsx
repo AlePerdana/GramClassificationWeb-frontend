@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import authService from '../../service/authService';
 import { 
   Search, Clock
 } from 'lucide-react';
@@ -74,7 +75,20 @@ const History = () => {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/analyst/history`);
+        const response = await fetch(`${API_BASE_URL}/analyst/history`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...authService.getAuthorizationHeader(),
+          },
+        });
+
+        if (response.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
+
         if (!response.ok) {
           setHistoryData([]);
           return;
@@ -119,7 +133,7 @@ const History = () => {
     };
 
     fetchHistory();
-  }, []);
+  }, [navigate]);
 
   // Filter Logic Sederhana
   const filteredData = historyData.filter(item => {

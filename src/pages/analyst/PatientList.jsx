@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import authService from '../../service/authService';
 import { 
   Search, 
   Filter, 
@@ -25,21 +26,49 @@ const AnalystPatientList = () => {
 
   useEffect(() => {
     const fetchPatients = async () => {
+      setIsLoading(true);
       try {
+        const authHeaders = authService.getAuthorizationHeader();
+
+        const extractItems = (payload) => {
+          if (Array.isArray(payload)) return payload;
+          if (Array.isArray(payload?.data)) return payload.data;
+          if (Array.isArray(payload?.results)) return payload.results;
+          return [];
+        };
+
         const [pendingRes, waitingRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/patients?specimen_status=pending&include_no_specimen=true`),
-          fetch(`${API_BASE_URL}/patients?specimen_status=waiting_validation&include_no_specimen=false`),
+          fetch(`${API_BASE_URL}/patients?specimen_status=pending&include_no_specimen=true`, {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              ...authHeaders,
+            },
+          }),
+          fetch(`${API_BASE_URL}/patients?specimen_status=waiting_validation&include_no_specimen=false`, {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              ...authHeaders,
+            },
+          }),
         ]);
+
+        if (pendingRes.status === 401 || waitingRes.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
 
         const pendingData = pendingRes.ok ? await pendingRes.json() : [];
         const waitingData = waitingRes.ok ? await waitingRes.json() : [];
 
-        const normalizedPending = (Array.isArray(pendingData) ? pendingData : []).map((p) => ({
+        const normalizedPending = extractItems(pendingData).map((p) => ({
           ...p,
           queue_status: 'pending',
         }));
 
-        const normalizedWaiting = (Array.isArray(waitingData) ? waitingData : []).map((p) => ({
+        const normalizedWaiting = extractItems(waitingData).map((p) => ({
           ...p,
           queue_status: 'waiting_validation',
         }));
@@ -47,13 +76,14 @@ const AnalystPatientList = () => {
         setPatients([...normalizedPending, ...normalizedWaiting]);
       } catch (error) {
         console.error('Gagal mengambil data pasien:', error);
+        setPatients([]);
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchPatients();
-  }, [API_BASE_URL]);
+  }, [API_BASE_URL, navigate]);
 
   const getQueueStatus = (patient) => String(patient.queue_status || patient.specimen_status || patient.status || 'pending').toLowerCase();
   const getLegacyStatus = (patient) => {

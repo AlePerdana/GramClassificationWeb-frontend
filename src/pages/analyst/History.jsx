@@ -4,6 +4,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import authService from '../../service/authService';
 
 const History = () => {
   const API_BASE_URL = 'http://localhost:8000/api';
@@ -24,16 +25,30 @@ const History = () => {
     const fetchHistory = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch(`${API_BASE_URL}/analyst/history`);
+        const headers = authService.getAuthorizationHeader();
+        const response = await fetch(`${API_BASE_URL}/analyst/history`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...headers,
+          },
+        });
+
+        if (response.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
+
         if (response.ok) {
           const raw = await response.json();
           const data = Array.isArray(raw)
             ? raw
             : Array.isArray(raw?.data)
-              ? raw.data
-              : Array.isArray(raw?.results)
-                ? raw.results
-                : [];
+            ? raw.data
+            : Array.isArray(raw?.results)
+            ? raw.results
+            : [];
           setHistoryData(data);
         } else {
           setHistoryData([]);
@@ -47,7 +62,7 @@ const History = () => {
     };
 
     fetchHistory();
-  }, [API_BASE_URL]);
+  }, [API_BASE_URL, navigate]);
 
   const getStatusLabel = (item) => {
     const statusRaw = String(item?.status || item?.validation_status || item?.status_validasi || '');

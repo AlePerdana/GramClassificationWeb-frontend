@@ -42,8 +42,9 @@ const UserManagement = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   
-  const [formData, setFormData] = useState({ name: '', username: '', password: '', role: 'Dokter', status: 'Aktif' });
+  const [formData, setFormData] = useState({ name: '', username: '', email: '', password: '', role: 'Dokter', status: 'Aktif' });
   const [isEditing, setIsEditing] = useState(false);
   const [currentId, setCurrentId] = useState(null);
 
@@ -57,6 +58,7 @@ const UserManagement = () => {
         id: u.id,
         name: u.full_name,
         username: u.username,
+        email: u.email || '',
         role: normalizeRoleForUi(u.role),
         status: u.is_active ? 'Aktif' : 'Non-Aktif',
       }));
@@ -101,6 +103,7 @@ const UserManagement = () => {
     setFormData({
       name: user.name,
       username: user.username,
+      email: user.email || '',
       password: '',
       role: user.role,
       status: user.status,
@@ -111,7 +114,7 @@ const UserManagement = () => {
   };
 
   const handleAddClick = () => {
-    setFormData({ name: '', username: '', password: '', role: 'Dokter', status: 'Aktif' });
+    setFormData({ name: '', username: '', email: '', password: '', role: 'Dokter', status: 'Aktif' });
     setIsEditing(false);
     setCurrentId(null);
     setShowModal(true);
@@ -120,10 +123,20 @@ const UserManagement = () => {
   const handleSaveUser = async (e) => {
     e.preventDefault();
     setErrorMessage('');
+    setPasswordError('');
+
+    // Only validate password if filled (for edit, can be blank)
+    if (formData.password && formData.password.length < 6) {
+      setPasswordError('Password minimal 6 karakter');
+      return;
+    }
+
+    const normalizedEmail = String(formData.email || '').trim();
 
     const payload = {
       full_name: formData.name,
       username: formData.username,
+      email: normalizedEmail || null,
       role: normalizeRoleForApi(formData.role),
       is_active: formData.status === 'Aktif',
       ...(formData.password ? { password: formData.password } : {}),
@@ -138,7 +151,7 @@ const UserManagement = () => {
       setShowModal(false);
       setIsEditing(false);
       setCurrentId(null);
-      setFormData({ name: '', username: '', password: '', role: 'Dokter', status: 'Aktif' });
+      setFormData({ name: '', username: '', email: '', password: '', role: 'Dokter', status: 'Aktif' });
       await fetchUsers();
     } catch (err) {
       setErrorMessage(err?.message || 'Gagal menyimpan data pengguna');
@@ -325,17 +338,45 @@ const UserManagement = () => {
                   />
                 </div>
                 <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Email <span className="text-gray-400 font-normal normal-case">(opsional)</span></label>
+                  <input
+                    type="email"
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                    placeholder="email@contoh.com"
+                    value={formData.email}
+                    onChange={(e) => setFormData({...formData, email: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
                   <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
                     Password {isEditing && <span className="text-gray-400 font-normal normal-case">(Kosongkan jika tidak mengubah)</span>}
                   </label>
                   <input 
                     type="password" 
                     required={!isEditing}
-                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                    minLength={6}
+                    className={`w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm ${passwordError ? 'border-red-400' : ''}`}
                     placeholder="******"
                     value={formData.password}
                     onChange={(e) => setFormData({...formData, password: e.target.value})}
                   />
+                  {passwordError && (
+                    <div className="text-xs text-red-600 mt-1">{passwordError}</div>
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Status Akun</label>
+                  <select 
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                    value={formData.status}
+                    onChange={(e) => setFormData({...formData, status: e.target.value})}
+                  >
+                    <option value="Aktif">Aktif</option>
+                    <option value="Non-Aktif">Non-Aktif</option>
+                  </select>
                 </div>
               </div>
 
@@ -350,18 +391,6 @@ const UserManagement = () => {
                     <option value="Analis">Analis</option>
                     <option value="Admin">Admin</option>
                   </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Status Akun</label>
-                <select 
-                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
-                  value={formData.status}
-                  onChange={(e) => setFormData({...formData, status: e.target.value})}
-                >
-                  <option value="Aktif">Aktif</option>
-                  <option value="Non-Aktif">Non-Aktif</option>
-                </select>
               </div>
 
               <div className="pt-4 flex gap-3">

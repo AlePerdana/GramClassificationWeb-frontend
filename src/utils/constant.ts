@@ -1,4 +1,4 @@
-const API_HOST = import.meta.env.VITE_API_HOST || 'http://localhost:8000';
+const API_HOST = (import.meta as any).env.VITE_API_HOST || 'http://localhost:8000';
 
 export const APP_CONFIG = {
     API_HOST,

@@ -11,8 +11,9 @@ import {
   Check,
   Save
 } from 'lucide-react';
+import { APP_CONFIG } from '../../utils/constant';
 
-const API_HOST = 'http://localhost:8000';
+const API_HOST = APP_CONFIG.API_HOST;
 const SHAPE_OPTIONS = ['Kokus', 'Basil', 'Spiral'];
 const GRAM_OPTIONS = ['Positif', 'Negatif'];
 

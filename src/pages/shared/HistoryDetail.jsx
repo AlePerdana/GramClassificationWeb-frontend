@@ -5,8 +5,9 @@ import {
   ArrowLeft, Printer, Edit,
   Info, User, Activity, FileText
 } from 'lucide-react';
+import { APP_CONFIG } from '../../utils/constant';
 
-const API_HOST = 'http://localhost:8000';
+const API_HOST = APP_CONFIG.API_HOST;
 
 const joinApiUrl = (path) => {
   if (!path) return '';

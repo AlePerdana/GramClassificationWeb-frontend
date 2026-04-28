@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../../service/authService';
+import { APP_CONFIG } from '../../utils/constant';
 import {
   Clock,
   ArrowRight,
@@ -73,7 +74,7 @@ const StatCard = ({ title, value, subtext, icon, imageSrc, color, bg }) => {
 };
 
 const Dashboard = () => {
-  const API_BASE_URL = 'http://localhost:8000/api';
+  const API_BASE_URL = APP_CONFIG.API_BASE_URL;
   const [pendingPatients, setPendingPatients] = useState([]);
   const [waitingValidationPatients, setWaitingValidationPatients] = useState([]);
   const [isQueueLoading, setIsQueueLoading] = useState(true);

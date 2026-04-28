@@ -5,9 +5,10 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../../service/authService';
+import { APP_CONFIG } from '../../utils/constant';
 
 const History = () => {
-  const API_BASE_URL = 'http://localhost:8000/api';
+  const API_BASE_URL = APP_CONFIG.API_BASE_URL;
   const LEGACY_STATUS = {
     waiting: 'Menunggu Validasi',
     done: 'Selesai Validasi'

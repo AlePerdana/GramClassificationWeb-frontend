@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import authService from '../../service/authService';
 import { 
-  Search, 
-  Filter, 
-  CheckCircle,
+  Search, ClipboardCheck, Clock, CheckCircle, 
+  AlertCircle, ChevronRight, Activity, Filter, 
+  ArrowRight, FileText
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { APP_CONFIG } from '../../utils/constant';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = APP_CONFIG.API_HOST;
 const LEGACY_STATUS = {
   pending: 'Menunggu Validasi',
   done: 'Selesai Validasi'

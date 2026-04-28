@@ -10,9 +10,11 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { APP_CONFIG } from '../../utils/constant';
+
+const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 
 const AnalystPatientList = () => {
-  const API_BASE_URL = 'http://localhost:8000/api';
   const LEGACY_STATUS = {
     pending: 'Belum Diproses',
     waitingValidation: 'Menunggu Dokter'

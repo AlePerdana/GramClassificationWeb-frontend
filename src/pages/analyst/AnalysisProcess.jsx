@@ -8,13 +8,14 @@ import {
   Info, ZoomIn, ZoomOut, Move, Crop, Scan, Trash, AlertCircle,
   Hand, MousePointer2
 } from 'lucide-react';
+import { APP_CONFIG } from '../../utils/constant';
 
 const AnalysisProcess = () => {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const API_BASE_URL = 'http://localhost:8000/api';
-  const API_HOST = API_BASE_URL.replace(/\/api\/?$/, '');
+  const API_BASE_URL = APP_CONFIG.API_BASE_URL;
+  const API_HOST = APP_CONFIG.API_HOST;
   const draftStorageKey = useMemo(() => `analysis_draft_v1:${String(id || '')}`, [id]);
 
   // --- STATE ---

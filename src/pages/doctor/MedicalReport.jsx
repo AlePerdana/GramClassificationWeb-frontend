@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft, Activity } from 'lucide-react';
 import authService from '../../service/authService';
+import { APP_CONFIG } from '../../utils/constant';
 
-const API_HOST = 'http://localhost:8000';
+const API_HOST = APP_CONFIG.API_HOST;
 
 const fallbackReportData = {
   id_laporan: 'RPT-000',

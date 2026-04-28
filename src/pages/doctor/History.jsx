@@ -4,8 +4,9 @@ import authService from '../../service/authService';
 import { 
   Search, Clock
 } from 'lucide-react';
+import { APP_CONFIG } from '../../utils/constant';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 
 const pad2 = (num) => String(num).padStart(2, '0');
 

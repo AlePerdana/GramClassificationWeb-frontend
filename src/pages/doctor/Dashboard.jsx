@@ -2,25 +2,24 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../../service/authService';
 import { 
-  ClipboardCheck, // Ikon untuk Validasi
-  Stethoscope,    // Ikon identitas Dokter
+  Users, ClipboardCheck, Clock, CheckCircle, 
+  AlertCircle, ChevronRight, Activity, TrendingUp,
+  Calendar, ArrowUpRight,
   Filter,
   AlertTriangle,
-  CheckCircle,
-  ArrowRight
+  ArrowRight,
+  Stethoscope
 } from 'lucide-react';
 import { 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, 
+  Tooltip, ResponsiveContainer, BarChart, Bar, Legend
 } from 'recharts';
+import { APP_CONFIG } from '../../utils/constant';
 
 // Menggunakan aset yang sama agar konsisten
 import bakteriIcon from '../../assets/bakteri.png'; 
+
+const API_BASE_URL = APP_CONFIG.API_HOST;
 
 // --- DATA DUMMY (Konteks: Validasi Dokter) ---
 
@@ -57,7 +56,7 @@ const dataTahunan = [
   { name: '2025', pending: 80, validated: 3100 },
 ];
 
-const API_BASE_URL = 'http://localhost:8000';
+
 
 // --- KOMPONEN KARTU STATISTIK (Reusable) ---
 const StatCard = ({ title, value, subtext, icon: Icon, imageSrc, color, bg, border }) => (

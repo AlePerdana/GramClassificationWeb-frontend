@@ -136,8 +136,9 @@ export const createAuthService = (): AuthServiceApi => {
         getAuthorizationHeader(config?: AuthServiceConfig) {
             const cfg = getConfig(config);
             const token = service.getAccessToken(cfg);
-            if (!token) return {};
-            return { [cfg.authHeaderName]: `${cfg.authHeaderPrefix} ${token}` };
+            const headers: Record<string, string> = { 'ngrok-skip-browser-warning': 'true' };
+            if (token) headers[cfg.authHeaderName] = `${cfg.authHeaderPrefix} ${token}`;
+            return headers;
         },
 
         async login(request: LoginRequest, config?: AuthServiceConfig): Promise<AuthSession> {
@@ -150,6 +151,7 @@ export const createAuthService = (): AuthServiceApi => {
                 headers: {
                     Accept: 'application/json',
                     'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true',
                 },
                 data: request,
             });
@@ -189,6 +191,7 @@ export const createAuthService = (): AuthServiceApi => {
                 headers: {
                     Accept: 'application/json',
                     'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true',
                 },
                 data: { refresh: refreshToken },
             });

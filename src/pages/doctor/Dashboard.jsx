@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import authService from '../../service/authService';
 import { 
   ClipboardCheck, // Ikon untuk Validasi
   Stethoscope,    // Ikon identitas Dokter
@@ -56,13 +57,7 @@ const dataTahunan = [
   { name: '2025', pending: 80, validated: 3100 },
 ];
 
-// Data Antrean Validasi (Pasien yang sudah diklasifikasi Analis, menunggu Dokter)
-const validationQueue = [
-  { id: 'P-021', name: 'Ahmad Dahlan', result: 'Gram Positif', confidence: '98%', urgency: 'High' },
-  { id: 'P-024', name: 'Maria Kristin', result: 'Gram Negatif', confidence: '92%', urgency: 'Normal' },
-  { id: 'P-028', name: 'Sujatmiko', result: 'Gram Positif', confidence: '89%', urgency: 'Normal' },
-  { id: 'P-033', name: 'Indah Pertiwi', result: 'Gram Negatif', confidence: '75%', urgency: 'Low' }, // Low confidence butuh perhatian
-];
+const API_BASE_URL = 'http://localhost:8000';
 
 // --- KOMPONEN KARTU STATISTIK (Reusable) ---
 const StatCard = ({ title, value, subtext, icon: Icon, imageSrc, color, bg, border }) => (
@@ -86,11 +81,65 @@ const StatCard = ({ title, value, subtext, icon: Icon, imageSrc, color, bg, bord
 const Dashboard = () => {
   const navigate = useNavigate();
   const [filter, setFilter] = useState('Harian');
+  const [validationQueue, setValidationQueue] = useState([]);
+
+  useEffect(() => {
+    const fetchQueue = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/doctor/doctor-queue`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...authService.getAuthorizationHeader(),
+          },
+        });
+
+        if (response.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
+
+        if (!response.ok) {
+          setValidationQueue([]);
+          return;
+        }
+
+        const result = await response.json();
+        const payload = Array.isArray(result)
+          ? result
+          : Array.isArray(result?.data)
+            ? result.data
+            : [];
+
+        const mapped = payload.map((item) => ({
+          id: item?.id_specimen ?? item?.specimen_id ?? item?.id,
+          name: item?.nama_pasien || item?.patient_name || '-',
+          result: item?.hasil_gram || 'Menunggu Validasi',
+          confidence: item?.confidence ? `${item.confidence}%` : '-',
+          urgency: item?.urgency || 'Normal',
+        }));
+
+        setValidationQueue(mapped);
+      } catch (error) {
+        console.error('Gagal mengambil antrean validasi dokter:', error);
+        setValidationQueue([]);
+      }
+    };
+
+    fetchQueue();
+    const id = window.setInterval(fetchQueue, 10000);
+    return () => window.clearInterval(id);
+  }, [navigate]);
+
   const queueCount = validationQueue.length;
 
-  const goToValidationDetail = () => {
-    // Prototype: always open the first validation detail entry
-    navigate('/doctor/validation/1');
+  const goToValidationDetail = (specimenId) => {
+    if (!specimenId) {
+      navigate('/doctor/validation');
+      return;
+    }
+    navigate(`/doctor/validation/${specimenId}`);
   };
 
   const getChartData = () => {
@@ -253,7 +302,7 @@ const Dashboard = () => {
 
                 <div className="mt-4 flex items-center justify-end">
                     <button
-                      onClick={goToValidationDetail}
+                      onClick={() => goToValidationDetail(patient.id)}
                       className="text-xs bg-teal-600 text-white px-3 py-1.5 rounded-lg shadow-sm hover:bg-teal-700 transition-colors flex items-center gap-1 font-medium w-full justify-center"
                     >
                         <ClipboardCheck size={14} /> Periksa & Validasi

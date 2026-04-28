@@ -43,6 +43,9 @@ const UserManagement = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [passwordError, setPasswordError] = useState('');
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   
   const [formData, setFormData] = useState({ name: '', username: '', email: '', password: '', role: 'Dokter', status: 'Aktif' });
   const [isEditing, setIsEditing] = useState(false);
@@ -84,6 +87,14 @@ const UserManagement = () => {
       return matchSearch && matchRole;
     });
   }, [users, searchTerm, filterRole]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterRole]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / itemsPerPage));
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedUsers = filteredUsers.slice(startIndex, startIndex + itemsPerPage);
 
   // Komponen Badge Role (Visualisasi Pembeda)
   const RoleBadge = ({ role }) => {
@@ -220,6 +231,7 @@ const UserManagement = () => {
           <table className="w-full text-center border-collapse whitespace-nowrap min-w-[850px]">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wide text-center">
+                <th className="p-5 text-center">No</th>
                 <th className="p-5 text-center">Nama Pengguna</th>
                 <th className="p-5 text-center">Username</th>
                 <th className="p-5 text-center">Role</th>
@@ -230,25 +242,26 @@ const UserManagement = () => {
             <tbody className="divide-y divide-gray-50 text-sm">
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="p-10 text-center text-sm text-gray-500">
+                  <td colSpan={6} className="p-10 text-center text-sm text-gray-500">
                     Memuat data...
                   </td>
                 </tr>
               ) : errorMessage ? (
                 <tr>
-                  <td colSpan={5} className="p-10 text-center text-sm text-red-600 font-medium">
+                  <td colSpan={6} className="p-10 text-center text-sm text-red-600 font-medium">
                     {errorMessage}
                   </td>
                 </tr>
-              ) : filteredUsers.length === 0 ? (
+              ) : paginatedUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-10 text-center text-sm text-gray-500">
+                  <td colSpan={6} className="p-10 text-center text-sm text-gray-500">
                     Data tidak ditemukan
                   </td>
                 </tr>
               ) : (
-                filteredUsers.map((user) => (
+                paginatedUsers.map((user, index) => (
                 <tr key={user.id} className="hover:bg-blue-50/30 transition-colors">
+                  <td className="p-5 text-center text-gray-500 font-medium">{startIndex + index + 1}</td>
                   <td className="p-5 text-center">
                     <div className="flex items-center justify-center gap-3">
                       <div>
@@ -293,12 +306,25 @@ const UserManagement = () => {
           </table>
         </div>
 
-        {/* Footer Pagination (Static) */}
+        {/* Pagination Footer */}
         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm text-gray-500">
-          <span>Menampilkan {filteredUsers.length} dari {users.length} data</span>
-          <div className="flex gap-2">
-            <button className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50" disabled>Sebelumnya</button>
-            <button className="px-3 py-1 border border-gray-200 rounded bg-white hover:bg-gray-50">Berikutnya</button>
+          <span>Menampilkan {paginatedUsers.length} dari {filteredUsers.length} data</span>
+          <div className="flex gap-2 items-center">
+            <button 
+              className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors" 
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            >
+              Sebelumnya
+            </button>
+            <span className="px-2 py-1 text-gray-500 font-medium">Hal {currentPage} / {totalPages}</span>
+            <button 
+              className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+            >
+              Berikutnya
+            </button>
           </div>
         </div>
       </div>

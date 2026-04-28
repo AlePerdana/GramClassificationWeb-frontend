@@ -70,6 +70,8 @@ const isValidatedItem = (item) => {
 const History = () => {
   const [historyData, setHistoryData] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -133,6 +135,8 @@ const History = () => {
     };
 
     fetchHistory();
+    const id = window.setInterval(fetchHistory, 10000);
+    return () => window.clearInterval(id);
   }, [navigate]);
 
   // Filter Logic Sederhana
@@ -140,6 +144,14 @@ const History = () => {
     const term = searchTerm.toLowerCase();
     return item.patient.toLowerCase().includes(term) || item.code.toLowerCase().includes(term);
   });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, historyData.length]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / itemsPerPage));
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedData = filteredData.slice(startIndex, startIndex + itemsPerPage);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10 bg-slate-50/80 p-4 rounded-2xl">
@@ -180,8 +192,8 @@ const History = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 text-sm">
-              {filteredData.length > 0 ? (
-                filteredData.map((item) => (
+              {paginatedData.length > 0 ? (
+                paginatedData.map((item) => (
                   <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
 
                     {/* Kolom 1: Waktu Validasi */}
@@ -255,10 +267,23 @@ const History = () => {
 
         {/* Pagination Footer */}
         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm text-gray-500">
-          <span>Menampilkan {filteredData.length} data</span>
-          <div className="flex gap-2">
-            <button disabled className="px-3 py-1 bg-white border border-gray-200 rounded text-gray-400 cursor-not-allowed">Sebelumnya</button>
-            <button className="px-3 py-1 bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600">Berikutnya</button>
+          <span>Menampilkan {paginatedData.length} dari {filteredData.length} data</span>
+          <div className="flex gap-2 items-center">
+            <button 
+              className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors" 
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            >
+              Sebelumnya
+            </button>
+            <span className="px-2 py-1 text-gray-500 font-medium">Hal {currentPage} / {totalPages}</span>
+            <button 
+              className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+            >
+              Berikutnya
+            </button>
           </div>
         </div>
       </div>

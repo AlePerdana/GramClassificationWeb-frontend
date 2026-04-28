@@ -110,6 +110,8 @@ const ModelManagement = () => {
   const [cnnModels, setCnnModels] = useState(initialCnnModels);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const [isRetrainModalOpen, setIsRetrainModalOpen] = useState(false);
   const [isRetrainSubmitting, setIsRetrainSubmitting] = useState(false);
@@ -216,6 +218,15 @@ const ModelManagement = () => {
   const currentModels = activeTab === 'detection' ? yoloModels : cnnModels;
   const bestModel = [...currentModels].sort((a, b) => b.f1Score - a.f1Score)[0];
   const activeModel = currentModels.find(m => m.status === 'Aktif') || currentModels[0];
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab]);
+
+  const reversedModels = [...currentModels].reverse();
+  const totalPages = Math.max(1, Math.ceil(reversedModels.length / itemsPerPage));
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedModels = reversedModels.slice(startIndex, startIndex + itemsPerPage);
 
   const modelOptions = (currentModels || [])
     .filter((m) => m && m.id !== undefined && m.id !== null)
@@ -535,7 +546,7 @@ const ModelManagement = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 text-sm">
-                  {[...currentModels].reverse().map((model) => {
+                  {paginatedModels.map((model) => {
                     const isBest = model.id === bestModel?.id;
                     return (
                     <tr key={model.id} className={`hover:bg-blue-50/30 ${model.status === 'Aktif' ? 'bg-blue-50/10' : ''}`}>
@@ -571,6 +582,28 @@ const ModelManagement = () => {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Pagination Footer */}
+            <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm text-gray-500">
+              <span>Menampilkan {paginatedModels.length} dari {reversedModels.length} data</span>
+              <div className="flex gap-2 items-center">
+                <button 
+                  className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors" 
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                >
+                  Sebelumnya
+                </button>
+                <span className="px-2 py-1 text-gray-500 font-medium">Hal {currentPage} / {totalPages}</span>
+                <button 
+                  className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                >
+                  Berikutnya
+                </button>
+              </div>
             </div>
           </div>
         </div>

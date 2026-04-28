@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import authService from '../../service/authService';
 import {
   Clock,
   ArrowRight,
@@ -83,10 +84,30 @@ const Dashboard = () => {
     const fetchPatients = async () => {
       setIsQueueLoading(true);
       try {
+        const authHeaders = authService.getAuthorizationHeader();
+
         const [pendingRes, waitingRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/patients?specimen_status=pending&include_no_specimen=true`),
-          fetch(`${API_BASE_URL}/patients?specimen_status=waiting_validation&include_no_specimen=false`),
+          fetch(`${API_BASE_URL}/patients?specimen_status=pending&include_no_specimen=true`, {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              ...authHeaders,
+            },
+          }),
+          fetch(`${API_BASE_URL}/patients?specimen_status=waiting_validation&include_no_specimen=false`, {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              ...authHeaders,
+            },
+          }),
         ]);
+
+        if (pendingRes.status === 401 || waitingRes.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
 
         const pendingData = pendingRes.ok ? await pendingRes.json() : [];
         const waitingData = waitingRes.ok ? await waitingRes.json() : [];
@@ -103,7 +124,9 @@ const Dashboard = () => {
     };
 
     fetchPatients();
-  }, [API_BASE_URL]);
+    const id = window.setInterval(fetchPatients, 10000);
+    return () => window.clearInterval(id);
+  }, [API_BASE_URL, navigate]);
 
   const waitingQueue = pendingPatients.map((p) => ({
     id: p.id_pasien || p.id,

@@ -1,5 +1,7 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
+import authService from '../../service/authService';
 import { 
   Upload, X, Play, Save, ArrowLeft, ArrowRight, Microscope, 
   CheckCircle, Activity, Maximize2, AlertTriangle, 
@@ -12,6 +14,8 @@ const AnalysisProcess = () => {
   const navigate = useNavigate();
 
   const API_BASE_URL = 'http://localhost:8000/api';
+  const API_HOST = API_BASE_URL.replace(/\/api\/?$/, '');
+  const draftStorageKey = useMemo(() => `analysis_draft_v1:${String(id || '')}`, [id]);
 
   // --- STATE ---
   const [patient, setPatient] = useState(null);
@@ -27,7 +31,7 @@ const AnalysisProcess = () => {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   
   // Logic State
-  const [mode, setMode] = useState('view'); // 'view', 'drag', 'manual_crop', 'auto_detect'
+  const [mode, setMode] = useState('drag'); // 'view', 'drag', 'manual_crop', 'auto_detect'
   const [rois, setRois] = useState({}); 
   const [status, setStatus] = useState('idle');
   const [isUploading, setIsUploading] = useState(false);
@@ -68,6 +72,14 @@ const AnalysisProcess = () => {
       setToast((prev) => (prev.open ? { ...prev, open: false } : prev));
     }, 4000);
   }, []);
+
+  const toAbsoluteUploadUrl = useCallback((path) => {
+    const raw = String(path || '').trim();
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '');
+    return `${API_HOST}/${normalized}`;
+  }, [API_HOST]);
 
   // --- SHORTCUTS KEYBOARD ---
   useEffect(() => {
@@ -114,11 +126,33 @@ const AnalysisProcess = () => {
     const fetchPatientData = async () => {
       setIsPatientLoading(true);
       try {
-        const response = await fetch(`${API_BASE_URL}/patients`);
+        const response = await fetch(`${API_BASE_URL}/patients`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...authService.getAuthorizationHeader(),
+          },
+        });
+
+        if (response.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
+
         if (response.ok) {
           const data = await response.json();
+          const patientList = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.data)
+              ? data.data
+              : Array.isArray(data?.results)
+                ? data.results
+            : Array.isArray(data?.items)
+              ? data.items
+              : [];
           const numericId = Number(id);
-          const currentPatient = (Array.isArray(data) ? data : []).find((p) => {
+          const currentPatient = patientList.find((p) => {
             const pid = Number(p.id ?? p.id_pasien);
             return Number.isNaN(numericId) ? String(p.id ?? p.id_pasien) === String(id) : pid === numericId;
           });
@@ -136,7 +170,136 @@ const AnalysisProcess = () => {
     };
 
     fetchPatientData();
-  }, [API_BASE_URL, id]);
+  }, [API_BASE_URL, id, navigate]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreDraft = async () => {
+      if (!id) return;
+
+      let parsed;
+      try {
+        const raw = localStorage.getItem(draftStorageKey);
+        if (!raw) return;
+        parsed = JSON.parse(raw);
+      } catch {
+        return;
+      }
+
+      if (!parsed || String(parsed.patientId || '') !== String(id)) return;
+
+      const draftImages = Array.isArray(parsed.images) ? parsed.images : [];
+      if (draftImages.length === 0) return;
+
+      const restoredImages = [];
+
+      for (const draftImage of draftImages) {
+        const specimenId = draftImage?.specimenId ?? draftImage?.specimen_id;
+        let previewUrl = draftImage?.previewUrl || toAbsoluteUploadUrl(draftImage?.filePath);
+
+        if (!previewUrl && specimenId) {
+          try {
+            const response = await fetch(`${API_HOST}/api/doctor/specimen-details/${specimenId}`, {
+              method: 'GET',
+              headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+              },
+            });
+
+            if (response.status === 401) {
+              authService.clearSession();
+              navigate('/login');
+              return;
+            }
+
+            if (response.ok) {
+              const detail = await response.json();
+              previewUrl = detail?.main_image_url || '';
+            }
+          } catch {
+            // noop
+          }
+        }
+
+        if (!previewUrl) continue;
+
+        restoredImages.push({
+          previewUrl,
+          specimenId,
+          fileName: draftImage?.fileName || `specimen-${specimenId || ''}`,
+          filePath: draftImage?.filePath || '',
+        });
+      }
+
+      if (cancelled || restoredImages.length === 0) return;
+
+      setImages(restoredImages);
+
+      const restoredUploaded = Array.isArray(parsed.uploadedSpecimens)
+        ? parsed.uploadedSpecimens
+            .map((s) => ({ id: s?.id ?? s?.specimen_id }))
+            .filter((s) => s.id !== undefined && s.id !== null)
+        : restoredImages
+            .map((img) => ({ id: img.specimenId }))
+            .filter((s) => s.id !== undefined && s.id !== null);
+
+      setUploadedSpecimens(restoredUploaded);
+      setRois(parsed.rois && typeof parsed.rois === 'object' ? parsed.rois : {});
+      setActiveImgIdx(
+        Math.max(
+          0,
+          Math.min(Number(parsed.activeImgIdx || 0), Math.max(0, restoredImages.length - 1))
+        )
+      );
+      setStatus('idle');
+      setMode('drag');
+      setIsSubmitted(false);
+      showToast('success', 'Progress sebelumnya telah dipulihkan.');
+    };
+
+    restoreDraft();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [API_HOST, draftStorageKey, id, navigate, showToast, toAbsoluteUploadUrl]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    if (isSubmitted || images.length === 0) {
+      localStorage.removeItem(draftStorageKey);
+      return;
+    }
+
+    const serializableImages = images.map((img) => ({
+      specimenId: img?.specimenId ?? img?.specimen_id ?? null,
+      fileName: img?.fileName || '',
+      filePath: img?.filePath || '',
+      previewUrl:
+        String(img?.previewUrl || '').startsWith('http')
+          ? img.previewUrl
+          : toAbsoluteUploadUrl(img?.filePath),
+    }));
+
+    const serializableUploaded = uploadedSpecimens
+      .map((s) => ({ id: s?.id ?? s?.specimen_id ?? null }))
+      .filter((s) => s.id !== null);
+
+    const payload = {
+      version: 1,
+      patientId: String(id),
+      activeImgIdx,
+      images: serializableImages,
+      rois,
+      uploadedSpecimens: serializableUploaded,
+      savedAt: new Date().toISOString(),
+    };
+
+    localStorage.setItem(draftStorageKey, JSON.stringify(payload));
+  }, [activeImgIdx, draftStorageKey, id, images, isSubmitted, rois, toAbsoluteUploadUrl, uploadedSpecimens]);
 
   const handleImageUpload = async (e) => {
     const files = Array.from(e.target.files);
@@ -164,8 +327,17 @@ const AnalysisProcess = () => {
 
         const response = await fetch(`${API_BASE_URL}/analyst/upload-specimen`, {
           method: 'POST',
+          headers: {
+            ...authService.getAuthorizationHeader(),
+          },
           body: formData,
         });
+
+        if (response.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
 
         if (!response.ok) {
           console.error('Gagal upload specimen awal:', file.name);
@@ -180,6 +352,7 @@ const AnalysisProcess = () => {
           previewUrl,
           specimenId,
           fileName: file.name,
+          filePath: uploaded.file_path || '',
         });
 
         if (specimenId) {
@@ -247,22 +420,20 @@ const AnalysisProcess = () => {
   // Native Wheel Event untuk mengunci scroll halaman & mengatur sensitivitas
   useEffect(() => {
     const handleNativeWheel = (e) => {
-      if (mode === 'drag') {
-        e.preventDefault(); // Kunci scroll halaman & pinch bawaan browser
+      e.preventDefault(); // Kunci scroll halaman & pinch bawaan browser
 
-        // Kurangi sensitivitas (Pinch trackpad biasanya membawa ctrlKey)
-        const sensitivity = e.ctrlKey ? 0.005 : 0.002;
-        const delta = -e.deltaY * sensitivity;
+      // Kurangi sensitivitas (Pinch trackpad biasanya membawa ctrlKey)
+      const sensitivity = e.ctrlKey ? 0.005 : 0.002;
+      const delta = -e.deltaY * sensitivity;
 
-        const container = showFullPreview ? modalImgRef.current : imgContainerRef.current;
-        if (container) {
-          const rect = container.getBoundingClientRect();
-          const focalPoint = {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top
-          };
-          handleZoom(delta, focalPoint);
-        }
+      const container = showFullPreview ? modalImgRef.current : imgContainerRef.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const focalPoint = {
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top
+        };
+        handleZoom(delta, focalPoint);
       }
     };
 
@@ -277,25 +448,76 @@ const AnalysisProcess = () => {
       if (containerEl) containerEl.removeEventListener('wheel', handleNativeWheel);
       if (modalEl) modalEl.removeEventListener('wheel', handleNativeWheel);
     };
-  }, [mode, showFullPreview, handleZoom]);
+  }, [mode, showFullPreview, handleZoom, images]);
 
   const resetView = () => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
-    setMode('view');
+    setMode('drag');
   };
 
-  const centerImageFor = (containerRef, imageRef) => {
+  const centerImageFor = (containerRef, imageRef, isModal = false) => {
     const imgEl = imageRef.current;
     const contEl = containerRef.current;
     if (!imgEl || !contEl) return;
-    const imgRect = imgEl.getBoundingClientRect();
+    
     const contRect = contEl.getBoundingClientRect();
+    
+    if (!isModal) {
+      // Main preview: resize to 80% of container
+      const maxW = contRect.width * 0.8;
+      const maxH = contRect.height * 0.8;
+      
+      const nw = imgEl.naturalWidth || 1;
+      const nh = imgEl.naturalHeight || 1;
+      
+      const imgRatio = nw / nh;
+      const contRatio = maxW / maxH;
+      
+      let targetW, targetH;
+      if (imgRatio > contRatio) {
+         targetW = maxW;
+         targetH = maxW / imgRatio;
+      } else {
+         targetH = maxH;
+         targetW = maxH * imgRatio;
+      }
+      
+      imgEl.style.width = `${targetW}px`;
+      imgEl.style.height = `${targetH}px`;
+      imgEl.style.maxHeight = 'none';
+      imgEl.style.maxWidth = 'none';
+    } else {
+      // Modal preview: sync size with main image to preserve ROI coordinates
+      const mainImgEl = imageElementRef.current;
+      if (mainImgEl) {
+         imgEl.style.width = mainImgEl.style.width;
+         imgEl.style.height = mainImgEl.style.height;
+         imgEl.style.maxHeight = 'none';
+         imgEl.style.maxWidth = 'none';
+      }
+    }
+
+    const finalW = parseFloat(imgEl.style.width) || imgEl.clientWidth;
+    const finalH = parseFloat(imgEl.style.height) || imgEl.clientHeight;
+
     setPan({
-      x: (contRect.width - imgRect.width) / 2,
-      y: (contRect.height - imgRect.height) / 2,
+      x: (contRect.width - finalW) / 2,
+      y: (contRect.height - finalH) / 2,
     });
   };
+
+  useEffect(() => {
+    if (showFullPreview) {
+      if (modalImageRef.current && modalImageRef.current.complete) {
+        centerImageFor(modalImgRef, modalImageRef, true);
+      }
+    } else {
+      if (imageElementRef.current && imageElementRef.current.complete) {
+        centerImageFor(imgContainerRef, imageElementRef, false);
+      }
+    }
+  }, [showFullPreview, activeImgIdx]);
 
   const updateImageMeta = (index, imgEl) => {
     if (!imgEl) return;
@@ -503,8 +725,18 @@ const AnalysisProcess = () => {
 
     try {
       const response = await fetch(`${API_BASE_URL}/analyst/detect/${specimenId}`, {
-        method: 'POST'
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          ...authService.getAuthorizationHeader(),
+        },
       });
+
+      if (response.status === 401) {
+        authService.clearSession();
+        navigate('/login');
+        return;
+      }
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -636,9 +868,19 @@ const AnalysisProcess = () => {
 
         const classifyResponse = await fetch(`${API_BASE_URL}/analyst/classify/${specimenId}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            ...authService.getAuthorizationHeader(),
+          },
           body: JSON.stringify({ rois: finalRoisInNaturalPixels }),
         });
+
+        if (classifyResponse.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
 
         if (!classifyResponse.ok) {
           const err = await classifyResponse.json().catch(() => ({}));
@@ -676,24 +918,24 @@ const AnalysisProcess = () => {
             ...roi,
             id: roiId,
             status: 'done',
-            aiGram: ai.classification_gram ?? ai.aiGram,
-            aiShape: ai.classification_shape ?? ai.aiShape ?? 'Kokus',
-            confidence: ai.classification_confidence ?? ai.confidence,
-            cropUrl: ai.image_file_name ?? ai.crop_url ?? roi.cropUrl,
+            aiGram: ai?.classification_gram ?? ai?.aiGram ?? 'Kokus',
+            aiShape: ai?.classification_shape ?? ai?.aiShape ?? 'Kokus',
+            confidence: Number(ai?.classification_confidence ?? ai?.confidence ?? 1),
+            cropUrl: ai?.image_file_name ?? ai?.crop_url ?? roi?.cropUrl ?? '',
           };
         });
       }
 
       setRois(nextRoisState);
 
-      const gramPositive = aggregatedResults.filter((r) => normalizeGramLabel(r.classification_gram ?? r.aiGram) === 'Positif').length;
-      const gramNegative = aggregatedResults.filter((r) => normalizeGramLabel(r.classification_gram ?? r.aiGram) === 'Negatif').length;
+      const gramPositive = aggregatedResults.filter((r) => normalizeGramLabel(r?.classification_gram ?? r?.aiGram) === 'Positif').length;
+      const gramNegative = aggregatedResults.filter((r) => normalizeGramLabel(r?.classification_gram ?? r?.aiGram) === 'Negatif').length;
 
       setResult({
         gramPositive,
         gramNegative,
         confidence: aggregatedResults.length
-          ? Math.round((aggregatedResults.reduce((sum, r) => sum + Number(r.classification_confidence ?? r.confidence ?? 0), 0) / aggregatedResults.length) * 100) / 100
+          ? Math.round((aggregatedResults.reduce((sum, r) => sum + Number(r?.classification_confidence ?? r?.confidence ?? 0), 0) / aggregatedResults.length) * 100) / 100
           : 0,
         details: [
           { type: 'Kokus (Gram +)', count: gramPositive },
@@ -716,6 +958,9 @@ const AnalysisProcess = () => {
     try {
       await fetch(`${API_BASE_URL}/analysis/cleanup/${specimenId}`, {
         method: 'DELETE',
+        headers: {
+          ...authService.getAuthorizationHeader(),
+        },
         keepalive: true,
       });
       console.log(`Specimen sampah ${specimenId} berhasil dihapus dari server.`);
@@ -744,6 +989,7 @@ const AnalysisProcess = () => {
       setStatus('idle');
       setMode('view');
       setIsSubmitted(false);
+      localStorage.removeItem(draftStorageKey);
     }
   };
 
@@ -759,6 +1005,8 @@ const AnalysisProcess = () => {
 
       cleanupData.current.uploadedSpecimens = [];
     }
+
+    localStorage.removeItem(draftStorageKey);
 
     navigate(-1);
   };
@@ -833,6 +1081,11 @@ const AnalysisProcess = () => {
   // UNMOUNT murni: hanya saat keluar/pindah halaman
   useEffect(() => {
     return () => {
+      const hasDraft = Boolean(localStorage.getItem(draftStorageKey));
+      if (hasDraft) {
+        return;
+      }
+
       const {
         isSubmitted: finalIsSubmitted,
         uploadedSpecimens: finalSpecimens,
@@ -844,13 +1097,16 @@ const AnalysisProcess = () => {
           if (specimenId) {
             fetch(`${API_BASE_URL}/analysis/cleanup/${specimenId}`, {
               method: 'DELETE',
+              headers: {
+                ...authService.getAuthorizationHeader(),
+              },
               keepalive: true,
             }).catch((err) => console.error('Cleanup error:', err));
           }
         });
       }
     };
-  }, []);
+  }, [API_BASE_URL, draftStorageKey]);
 
   const deleteRoi = (indexToRemove) => {
     const current = rois[activeImgIdx] || [];
@@ -876,32 +1132,7 @@ const AnalysisProcess = () => {
   const imagesWithoutRoiCount = images.reduce((sum, _, idx) => sum + (((rois[idx] || []).length === 0 ? 1 : 0)), 0);
   const canStartClassification = images.length > 0 && totalRois > 0 && imagesWithoutRoiCount === 0;
 
-  const handleSubmitToDoctor = async () => {
-    if (isSubmitting || isSubmitted) {
-      return;
-    }
 
-    if (doneRois.length === 0) {
-      showToast('error', 'Belum ada hasil klasifikasi untuk dikirim.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    setStatus('submitting');
-    try {
-      setIsSubmitted(true);
-      showToast('success', 'Hasil classify sudah tersimpan dan masuk antrean dokter.');
-      setTimeout(() => {
-        navigate('/analyst/history');
-      }, 500);
-    } catch (error) {
-      console.error('Submit error:', error);
-      showToast('error', 'Terjadi kesalahan koneksi saat submit.');
-    } finally {
-      setIsSubmitting(false);
-      setStatus('idle');
-    }
-  };
 
   // --- LOGIKA STEPPER OPERASIONAL (UPDATE) ---
   let currentStep = 1;
@@ -951,7 +1182,7 @@ const AnalysisProcess = () => {
         </div>
       </div>
     )}
-    <div className="max-w-7xl mx-auto pb-10 min-h-[calc(100vh-100px)] lg:h-[calc(100vh-100px)] flex flex-col bg-slate-50/80 p-2 md:p-4 rounded-2xl relative">
+    <div className="max-w-7xl mx-auto pb-10 mb-6 min-h-[calc(100vh-100px)] lg:h-[calc(100vh-100px)] flex flex-col bg-slate-50/80 p-2 md:p-4 rounded-2xl relative">
       {(status === 'analyzing' || status === 'auto_detecting') && (
         <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm transition-all duration-300">
           <div className="bg-white p-6 rounded-2xl shadow-2xl flex flex-col items-center w-80 text-center animate-in zoom-in-95">
@@ -1118,7 +1349,7 @@ const AnalysisProcess = () => {
                     style={{ maxHeight: '80vh' }} // Batas tinggi awal
                     onDragStart={(e) => e.preventDefault()}
                     onLoad={() => {
-                      centerImageFor(imgContainerRef, imageElementRef);
+                      centerImageFor(imgContainerRef, imageElementRef, false);
                       updateImageMeta(activeImgIdx, imageElementRef.current);
                     }}
                   />
@@ -1270,10 +1501,10 @@ const AnalysisProcess = () => {
                         e.stopPropagation();
                         handleRemoveImage(idx);
                       }}
-                      className="absolute top-0.5 right-0.5 z-10 w-4 h-4 rounded-full bg-black/70 text-white text-[10px] leading-none flex items-center justify-center hover:bg-red-600"
+                      className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/60 hover:bg-red-600 text-white flex items-center justify-center transition-colors border border-white/20 shadow-sm"
                       title="Hapus sampel"
                     >
-                      ×
+                      <X size={12} strokeWidth={3} />
                     </button>
                     <img src={item.previewUrl} className="w-full h-full object-cover" alt="Thumb" />
                   </div>
@@ -1319,14 +1550,16 @@ const AnalysisProcess = () => {
 
                 <div className="space-y-2">
                   <button
-                    onClick={handleSubmitToDoctor}
-                    disabled={isSubmitting || isSubmitted}
-                    className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 shadow-lg shadow-green-200 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                    onClick={() => {
+                      localStorage.removeItem(draftStorageKey);
+                      navigate('/analyst/history');
+                    }}
+                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
                   >
-                    <CheckCircle size={18} /> {isSubmitting ? 'Mengirim...' : isSubmitted ? 'Terkirim' : 'Submit ke Dokter'}
+                    <ArrowLeft size={18} /> Selesai & Kembali ke Riwayat
                   </button>
-                  <button onClick={handleReset} className="w-full py-2.5 border border-gray-200 text-gray-600 rounded-lg font-medium text-sm hover:bg-gray-50">
-                    Analisis Ulang
+                  <button onClick={handleReset} className="w-full py-2.5 border border-gray-200 text-slate-600 rounded-lg font-medium text-sm hover:bg-slate-50 transition-colors">
+                    <RefreshCw size={16} className="inline mr-1" /> Analisis Ulang (Reset)
                   </button>
                 </div>
               </div>
@@ -1398,8 +1631,8 @@ const AnalysisProcess = () => {
     </div>
 
     {/* --- MODAL FULL PREVIEW (INTERACTIVE) --- */}
-    {showFullPreview && images.length > 0 && (
-      <div className="fixed inset-0 z-50 bg-black/95 flex flex-col animate-in fade-in duration-200">
+    {showFullPreview && images.length > 0 && createPortal(
+      <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col animate-in fade-in duration-200">
         {/* Header Modal */}
         <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-50 pointer-events-none">
           <div className="bg-black/50 backdrop-blur-md px-4 py-2 rounded-full pointer-events-auto">
@@ -1490,6 +1723,9 @@ const AnalysisProcess = () => {
                 className="max-w-none pointer-events-none"
                 style={{ maxHeight: '80vh' }}
                 onDragStart={(e) => e.preventDefault()}
+                onLoad={() => {
+                  centerImageFor(modalImgRef, modalImageRef, true);
+                }}
               />
 
               {/* Render ROIs di Modal */}
@@ -1549,14 +1785,24 @@ const AnalysisProcess = () => {
             <span className="hidden md:inline">Scroll: Zoom • Drag: Geser • Panah: Navigasi</span>
           </div>
 
-          {/* Zoom Controls Modal */}
-          <div className="absolute bottom-4 md:bottom-8 right-4 md:left-1/2 md:-translate-x-1/2 flex items-center gap-2 md:gap-4 bg-black/50 backdrop-blur px-3 py-2 md:px-6 md:py-3 rounded-full border border-white/10 pointer-events-auto z-50">
-             <button onClick={(e) => { e.stopPropagation(); handleZoom(-0.2); }} className="p-1 hover:text-blue-400 active:text-blue-500 transition-colors"><ZoomOut size={16} className="md:w-5 md:h-5 text-white"/></button>
-             <span className="text-white font-mono text-xs md:text-sm min-w-[2.5rem] md:min-w-[3rem] text-center">{Math.round(zoom * 100)}%</span>
-             <button onClick={(e) => { e.stopPropagation(); handleZoom(0.2); }} className="p-1 hover:text-blue-400 active:text-blue-500 transition-colors"><ZoomIn size={16} className="md:w-5 md:h-5 text-white"/></button>
+          {/* Keyboard Shortcuts Hint di Modal (Pojok Kanan Bawah) */}
+          <div className="hidden lg:block absolute bottom-8 right-8 z-50 bg-black/60 text-white px-4 py-3 rounded-xl text-[10px] backdrop-blur-md pointer-events-none space-y-1.5 border border-white/10">
+            <p className="flex items-center justify-between gap-4">
+              <span className="font-bold text-blue-400">D</span> 
+              <span className="opacity-80">Geser (Drag)</span>
+            </p>
+            <p className="flex items-center justify-between gap-4">
+              <span className="font-bold text-yellow-400">B</span> 
+              <span className="opacity-80">Potong (Box)</span>
+            </p>
+            <p className="flex items-center justify-between gap-4">
+              <span className="font-bold text-red-400">R</span> 
+              <span className="opacity-80">Hapus (Remove)</span>
+            </p>
           </div>
         </div>
-      </div>
+      </div>,
+      document.body
     )}
 
     </>

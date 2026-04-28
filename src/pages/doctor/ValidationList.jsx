@@ -19,6 +19,8 @@ const ValidationList = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('Menunggu Validasi');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     const fetchQueue = async () => {
@@ -61,6 +63,8 @@ const ValidationList = () => {
     };
 
     fetchQueue();
+    const id = window.setInterval(fetchQueue, 10000);
+    return () => window.clearInterval(id);
   }, [navigate]);
 
   const resolveLegacyStatus = (item) => {
@@ -83,6 +87,14 @@ const ValidationList = () => {
     const matchStatus = filterStatus === 'Semua' || displayStatus === filterStatus;
     return matchSearch && matchStatus;
   });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterStatus]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredPatients.length / itemsPerPage));
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedPatients = filteredPatients.slice(startIndex, startIndex + itemsPerPage);
 
   const handleValidate = (specimenId) => {
     navigate(`/doctor/validate/${specimenId}`);
@@ -147,8 +159,8 @@ const ValidationList = () => {
                 <tr>
                   <td colSpan="6" className="p-10 text-center text-gray-500">Memuat antrean validasi...</td>
                 </tr>
-              ) : filteredPatients.length > 0 ? (
-                filteredPatients.map((patient) => {
+              ) : paginatedPatients.length > 0 ? (
+                paginatedPatients.map((patient) => {
                   const specimenId = patient.id_specimen ?? patient.specimen_id ?? patient.id;
                   const displayStatus = resolveLegacyStatus(patient);
                   const patientName = patient.nama_pasien || patient.name || '-';
@@ -226,12 +238,25 @@ const ValidationList = () => {
           </table>
         </div>
 
-        {/* Footer Pagination (Static) */}
+        {/* Pagination Footer */}
         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm text-gray-500">
-          <span>Menampilkan {filteredPatients.length} dari {queueData.length} data</span>
-          <div className="flex gap-2">
-            <button className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50" disabled>Sebelumnya</button>
-            <button className="px-3 py-1 border border-gray-200 rounded bg-white hover:bg-gray-50">Berikutnya</button>
+          <span>Menampilkan {paginatedPatients.length} dari {filteredPatients.length} data</span>
+          <div className="flex gap-2 items-center">
+            <button 
+              className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors" 
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            >
+              Sebelumnya
+            </button>
+            <span className="px-2 py-1 text-gray-500 font-medium">Hal {currentPage} / {totalPages}</span>
+            <button 
+              className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+            >
+              Berikutnya
+            </button>
           </div>
         </div>
       </div>

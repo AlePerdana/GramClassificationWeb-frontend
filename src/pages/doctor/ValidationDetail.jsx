@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import authService from '../../service/authService';
 import {
@@ -57,6 +58,9 @@ const ValidationDetail = () => {
   const [modalPan, setModalPan] = useState({ x: 0, y: 0 });
   const [isInteracting, setIsInteracting] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [selectedRows, setSelectedRows] = useState({});
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     if (!resolvedSpecimenId) {
@@ -93,6 +97,7 @@ const ValidationDetail = () => {
         const payload = result?.data || result || null;
         const rows = payload?.classifications || [];
         const initialValidations = {};
+        const initialSelected = {};
 
         rows.forEach((item, index) => {
           const key = String(item?.id ?? item?.classification_id ?? index);
@@ -101,10 +106,12 @@ const ValidationDetail = () => {
             validation_gram: normalizeGram(item?.validation_gram || item?.ai_gram || item?.classification_gram || ''),
             catatan: item?.catatan || ''
           };
+          initialSelected[key] = true;
         });
 
         setSpecimenData(payload);
         setValidations(initialValidations);
+        setSelectedRows(initialSelected);
         setDoctorNotes(payload?.doctor_notes || payload?.catatan_dokter || '');
       } catch (err) {
         setError(err.message || 'Terjadi kesalahan saat mengambil data.');
@@ -117,6 +124,9 @@ const ValidationDetail = () => {
   }, [resolvedSpecimenId]);
 
   const rows = useMemo(() => specimenData?.classifications || [], [specimenData]);
+  const totalPages = Math.max(1, Math.ceil(rows.length / itemsPerPage));
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedResults = rows.slice(startIndex, startIndex + itemsPerPage);
 
   const toDisplayConfidence = (value) => {
     if (value === null || value === undefined || value === '') return '100';
@@ -195,7 +205,8 @@ const ValidationDetail = () => {
           id: Number(item?.id ?? item?.classification_id ?? index),
           validation_bentuk: draft.validation_bentuk || '',
           validation_gram: draft.validation_gram || '',
-          catatan: draft.catatan || doctorNotes || ''
+          catatan: draft.catatan || doctorNotes || '',
+          is_deleted: !selectedRows[key]
         };
       })
     };
@@ -336,7 +347,23 @@ const ValidationDetail = () => {
                 <th className="p-4 w-44">Hasil AI</th>
                 <th className="p-4 text-center">Validasi Bentuk</th>
                 <th className="p-4 text-center">Validasi Gram</th>
-                <th className="p-4 text-center w-24">Aksi</th>
+                <th className="p-4 text-center w-24">
+                  <div className="flex flex-col items-center gap-1">
+                    <span>Sertakan</span>
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 text-blue-600 rounded cursor-pointer"
+                      checked={Object.values(selectedRows).length > 0 && Object.values(selectedRows).every(Boolean)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        const next = {};
+                        Object.keys(selectedRows).forEach(k => next[k] = checked);
+                        setSelectedRows(next);
+                      }}
+                      title="Pilih Semua"
+                    />
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -345,8 +372,8 @@ const ValidationDetail = () => {
                   <td colSpan={6} className="p-8 text-center text-slate-500">Belum ada hasil klasifikasi.</td>
                 </tr>
               ) : (
-                rows.map((row, index) => {
-                  const rowKey = String(row?.id ?? row?.classification_id ?? index);
+                paginatedResults.map((row, index) => {
+                  const rowKey = String(row?.id ?? row?.classification_id ?? (startIndex + index));
                   const draft = validations[rowKey] || {};
                   const imageUrl = joinApiUrl(row?.image_url || row?.crop_url || '');
                   const aiGram = normalizeGram(row?.ai_gram || row?.classification_gram || '-');
@@ -354,14 +381,14 @@ const ValidationDetail = () => {
 
                   return (
                     <tr key={rowKey} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4 text-center font-medium text-slate-600">{index + 1}</td>
+                      <td className="p-4 text-center font-medium text-slate-600">{startIndex + index + 1}</td>
                       <td className="p-4">
                         <div
-                          onClick={() => openPreview(row, index)}
+                          onClick={() => openPreview(row, startIndex + index)}
                           className="w-16 h-16 bg-slate-200 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all mx-auto"
                         >
                           {imageUrl ? (
-                            <img src={imageUrl} alt={`Crop ${index + 1}`} className="w-full h-full object-cover" />
+                            <img src={imageUrl} alt={`Crop ${startIndex + index + 1}`} className="w-full h-full object-cover" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-500">N/A</div>
                           )}
@@ -411,13 +438,18 @@ const ValidationDetail = () => {
                         </div>
                       </td>
                       <td className="p-4 text-center">
-                        <button
-                          onClick={() => openPreview(row, index)}
-                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                          title="Lihat Detail"
-                        >
-                          <Eye size={18} />
-                        </button>
+                        <input 
+                          type="checkbox" 
+                          className="w-5 h-5 text-blue-600 rounded cursor-pointer transition-transform hover:scale-110"
+                          checked={!!selectedRows[rowKey]}
+                          onChange={(e) => {
+                            setSelectedRows(prev => ({
+                              ...prev,
+                              [rowKey]: e.target.checked
+                            }));
+                          }}
+                          title="Centang untuk menyetujui bakteri ini, hapus centang untuk menolak."
+                        />
                       </td>
                     </tr>
                   );
@@ -426,6 +458,30 @@ const ValidationDetail = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Footer */}
+        {specimenData?.results && specimenData.results.length > 0 && (
+          <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm text-gray-500">
+            <span>Menampilkan {paginatedResults.length} dari {specimenData.results.length} data</span>
+            <div className="flex gap-2 items-center">
+              <button 
+                className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors" 
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              >
+                Sebelumnya
+              </button>
+              <span className="px-2 py-1 text-gray-500 font-medium">Hal {currentPage} / {totalPages}</span>
+              <button 
+                className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              >
+                Berikutnya
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {submitMessage ? (
@@ -434,8 +490,8 @@ const ValidationDetail = () => {
         </div>
       ) : null}
 
-      {showModal && activeCrop && (
-        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col animate-in fade-in duration-200">
+      {showModal && activeCrop && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col animate-in fade-in duration-200">
           <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-50 pointer-events-none">
             <span className="text-white font-medium text-sm px-4 py-2 bg-white/10 rounded-full backdrop-blur pointer-events-auto">
               {activeCrop.label} - {activeCrop.aiGram} {activeCrop.aiShape}
@@ -468,7 +524,7 @@ const ValidationDetail = () => {
                   src={activeCrop.imageUrl}
                   alt="Preview"
                   className="max-w-none pointer-events-none"
-                  style={{ maxHeight: '85vh', maxWidth: '100vw' }}
+                  style={{ height: '80vh', maxWidth: '90vw', objectFit: 'contain' }}
                 />
               ) : (
                 <div className="text-slate-300">Gambar tidak tersedia</div>
@@ -485,7 +541,8 @@ const ValidationDetail = () => {
               <ZoomIn size={20} className="text-white" />
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

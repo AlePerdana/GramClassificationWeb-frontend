@@ -18,7 +18,7 @@ const History = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('Semua Status');
   const [currentPage, setCurrentPage] = useState(1);
-  const rowsPerPage = 8;
+  const rowsPerPage = 10;
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -62,6 +62,8 @@ const History = () => {
     };
 
     fetchHistory();
+    const id = window.setInterval(fetchHistory, 10000);
+    return () => window.clearInterval(id);
   }, [API_BASE_URL, navigate]);
 
   const getStatusLabel = (item) => {
@@ -300,24 +302,22 @@ const History = () => {
           </table>
         </div>
 
-        {/* Pagination Footer (Static) */}
-        <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-xs text-gray-500">
-          <span>
-            Menampilkan {filteredData.length === 0 ? 0 : startIndex + 1}-{Math.min(endIndex, filteredData.length)} dari {filteredData.length} data
-          </span>
-          <div className="flex gap-2">
-            <button
-              className="px-3 py-1 bg-white border border-gray-200 rounded hover:bg-gray-100 disabled:opacity-50"
+        {/* Pagination Footer */}
+        <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm text-gray-500">
+          <span>Menampilkan {paginatedData.length} dari {filteredData.length} data</span>
+          <div className="flex gap-2 items-center">
+            <button 
+              className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors" 
               disabled={currentPage <= 1}
-              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
             >
               Sebelumnya
             </button>
-            <span className="px-2 py-1 text-gray-500">Hal {currentPage}/{totalPages}</span>
-            <button
-              className="px-3 py-1 bg-white border border-gray-200 rounded hover:bg-gray-100 disabled:opacity-50"
+            <span className="px-2 py-1 text-gray-500 font-medium">Hal {currentPage} / {totalPages}</span>
+            <button 
+              className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors"
               disabled={currentPage >= totalPages}
-              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
             >
               Berikutnya
             </button>

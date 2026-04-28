@@ -1,43 +1,143 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft, Activity } from 'lucide-react';
+import authService from '../../service/authService';
 
-// --- DUMMY DATA ---
-// Data ini idealnya di-fetch dari backend berdasarkan ID
-const reportData = {
-  id_laporan: 'RPT-20260306-001',
-  tanggal_cetak: '6 Maret 2026',
+const API_HOST = 'http://localhost:8000';
+
+const fallbackReportData = {
+  id_laporan: 'RPT-000',
+  tanggal_cetak: '-',
   pasien: {
-    id: 'P001', name: 'Budi Santoso', dob: '10 Februari 2001', age: '24 Tahun', gender: 'Laki-Laki'
+    id: '-', name: '-', dob: '-', age: '-', gender: '-'
   },
   klinis: {
-    tanggal_sampel: '27 Januari 2026', jenis_spesimen: 'Sputum', analis: 'Siti Aminah, S.Tr.A.K', dokter: 'dr. Andi Pratama, Sp.MK'
+    tanggal_sampel: '-', jenis_spesimen: 'Pewarnaan Gram', analis: '-', dokter: '-'
   },
   hasil: {
-    total_objek: 12,
-    gram_positif: { kokus: 8, batang: 0 },
-    gram_negatif: { kokus: 0, batang: 4 },
-    kesimpulan: 'Ditemukan dominasi bakteri Gram Positif berbentuk Kokus, serta keberadaan bakteri Gram Negatif berbentuk Batang dalam jumlah sedang.',
-    catatan_dokter: 'Pasien diindikasikan mengalami infeksi saluran pernapasan. Disarankan pemberian antibiotik spektrum luas sesuai pedoman empiris.'
+    total_objek: 0,
+    gram_positif: { kokus: 0, batang: 0 },
+    gram_negatif: { kokus: 0, batang: 0 },
+    kesimpulan: '-',
+    catatan_dokter: '-'
   },
-  gambar_bukti: [
-    { id: 1, img: 'https://placehold.co/150/2563eb/ffffff?text=Gram+Pos+Kokus', label: 'Gram Positif (Kokus)' },
-    { id: 2, img: 'https://placehold.co/150/dc2626/ffffff?text=Gram+Neg+Batang', label: 'Gram Negatif (Batang)' }
-  ]
+  gambar_bukti: []
+};
+
+const formatDate = (value) => {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 };
 
 const MedicalReport = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [rawReport, setRawReport] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const reportData = useMemo(() => {
+    if (!rawReport) return fallbackReportData;
+
+    return {
+      id_laporan: rawReport.id_laporan || `RPT-${rawReport.specimen_id || id || '000'}`,
+      tanggal_cetak: formatDate(rawReport.tanggal_cetak),
+      pasien: {
+        id: rawReport?.pasien?.id_pasien || '-',
+        name: rawReport?.pasien?.nama || '-',
+        dob: formatDate(rawReport?.pasien?.tanggal_lahir),
+        age: rawReport?.pasien?.umur ? `${rawReport.pasien.umur} Tahun` : '-',
+        gender: rawReport?.pasien?.jenis_kelamin || '-',
+      },
+      klinis: {
+        tanggal_sampel: formatDate(rawReport?.data_klinis?.tanggal_sampel),
+        jenis_spesimen: rawReport?.data_klinis?.jenis_spesimen || 'Pewarnaan Gram',
+        analis: rawReport?.data_klinis?.analis || '-',
+        dokter: rawReport?.data_klinis?.dokter || '-',
+      },
+      hasil: {
+        total_objek: rawReport?.ringkasan_hasil?.total_objek || 0,
+        gram_positif: {
+          kokus: rawReport?.ringkasan_hasil?.gram_positif_kokus || 0,
+          batang: rawReport?.ringkasan_hasil?.gram_positif_batang || 0,
+        },
+        gram_negatif: {
+          kokus: rawReport?.ringkasan_hasil?.gram_negatif_kokus || 0,
+          batang: rawReport?.ringkasan_hasil?.gram_negatif_batang || 0,
+        },
+        kesimpulan: rawReport?.ringkasan_hasil?.kesimpulan || '-',
+        catatan_dokter: rawReport?.ringkasan_hasil?.catatan_dokter || '-',
+      },
+      gambar_bukti: Array.isArray(rawReport?.gambar_bukti)
+        ? rawReport.gambar_bukti.map((img, index) => ({
+            id: index + 1,
+            img: img?.image_url || '',
+            label: img?.label || 'Gambar Bukti',
+          }))
+        : [],
+    };
+  }, [rawReport, id]);
 
   const handlePrint = () => {
     window.print();
   };
 
   useEffect(() => {
+    const fetchReport = async () => {
+      if (!id) {
+        setError('ID spesimen tidak ditemukan.');
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
+      setError('');
+      try {
+        const response = await fetch(`${API_HOST}/api/reports/specimen/${id}`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...authService.getAuthorizationHeader(),
+          },
+        });
+
+        if (response.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
+
+        const result = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(result?.detail || result?.message || 'Gagal memuat laporan medis.');
+        }
+
+        setRawReport(result);
+      } catch (err) {
+        setRawReport(null);
+        setError(err?.message || 'Gagal memuat laporan medis.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchReport();
+  }, [id, navigate]);
+
+  useEffect(() => {
     document.title = `Laporan_Mikrobiologi_${reportData.pasien.name}_${reportData.pasien.id}`;
     return () => { document.title = 'Aplikasi Klasifikasi Gram'; };
-  }, []);
+  }, [reportData.pasien.id, reportData.pasien.name]);
+
+  if (isLoading) {
+    return <div className="min-h-screen flex items-center justify-center">Memuat laporan medis...</div>;
+  }
+
+  if (error) {
+    return <div className="min-h-screen flex items-center justify-center text-red-600">{error}</div>;
+  }
 
   return (
     <div className="min-h-screen bg-gray-200 py-8 px-4 print:p-0 print:bg-white flex justify-center">

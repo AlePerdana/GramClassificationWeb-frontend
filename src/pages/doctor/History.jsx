@@ -129,6 +129,7 @@ const History = () => {
           });
 
         setHistoryData(mapped);
+        setCurrentPage(1);
       } catch (error) {
         console.error('Gagal mengambil riwayat validasi dokter:', error);
         setHistoryData([]);
@@ -136,8 +137,6 @@ const History = () => {
     };
 
     fetchHistory();
-    const id = window.setInterval(fetchHistory, 10000);
-    return () => window.clearInterval(id);
   }, [navigate]);
 
   // Filter Logic Sederhana
@@ -146,9 +145,6 @@ const History = () => {
     return item.patient.toLowerCase().includes(term) || item.code.toLowerCase().includes(term);
   });
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, historyData.length]);
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / itemsPerPage));
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -176,7 +172,10 @@ const History = () => {
               placeholder="Cari Nama Pasien atau Kode..." 
               className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-100 text-sm"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
             />
           </div>
         </div>

@@ -20,6 +20,7 @@ export const getJwtExpiryMs = (jwt: string): number | null => {
 
 export const isJwtExpired = (jwt: string, skewMs = 30_000): boolean => {
     const expMs = getJwtExpiryMs(jwt);
-    if (!expMs) return false;
+    if (!expMs) return true; // Treat invalid/non-JWT as expired
     return Date.now() + skewMs >= expMs;
 };
+

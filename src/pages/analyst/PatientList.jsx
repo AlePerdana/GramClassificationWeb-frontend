@@ -37,43 +37,33 @@ const AnalystPatientList = () => {
           return [];
         };
 
-        const [pendingRes, waitingRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/patients?specimen_status=pending&include_no_specimen=true`, {
-            method: 'GET',
-            headers: {
-              Accept: 'application/json',
-              ...authHeaders,
-            },
-          }),
-          fetch(`${API_BASE_URL}/patients?specimen_status=waiting_validation&include_no_specimen=false`, {
-            method: 'GET',
-            headers: {
-              Accept: 'application/json',
-              ...authHeaders,
-            },
-          }),
-        ]);
+        // ONLY fetch 'pending' patients as per user request (Waiting Validation and Selesai are in History)
+        const response = await fetch(`${API_BASE_URL}/patients?specimen_status=pending&include_no_specimen=true`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...authHeaders,
+          },
+        });
 
-        if (pendingRes.status === 401 || waitingRes.status === 401) {
+        if (response.status === 401) {
           authService.clearSession();
           navigate('/login');
           return;
         }
 
-        const pendingData = pendingRes.ok ? await pendingRes.json() : [];
-        const waitingData = waitingRes.ok ? await waitingRes.json() : [];
+        const data = response.ok ? await response.json() : [];
+        const normalized = extractItems(data).map((p) => {
+          const queue_status = 'pending';
+          const priority = calculatePriority(p); // Adding own parameter for prioritas
+          return {
+            ...p,
+            queue_status,
+            priority
+          };
+        });
 
-        const normalizedPending = extractItems(pendingData).map((p) => ({
-          ...p,
-          queue_status: 'pending',
-        }));
-
-        const normalizedWaiting = extractItems(waitingData).map((p) => ({
-          ...p,
-          queue_status: 'waiting_validation',
-        }));
-
-        setPatients([...normalizedPending, ...normalizedWaiting]);
+        setPatients(normalized);
       } catch (error) {
         console.error('Gagal mengambil data pasien:', error);
         setPatients([]);
@@ -85,9 +75,21 @@ const AnalystPatientList = () => {
     fetchPatients();
   }, [API_BASE_URL, navigate]);
 
+  const calculatePriority = (patient) => {
+    const dateObj = toSortableDate(getQueueTime(patient));
+    if (!dateObj) return 'normal';
+    const diffMinutes = Math.max(0, Math.floor((Date.now() - dateObj.getTime()) / 60000));
+    
+    if (diffMinutes > 15) return 'kritis';
+    if (diffMinutes > 5) return 'tinggi';
+    return 'normal';
+  };
+
   const getQueueStatus = (patient) => String(patient.queue_status || patient.specimen_status || patient.status || 'pending').toLowerCase();
+  
   const getLegacyStatus = (patient) => {
     const status = getQueueStatus(patient);
+    // In this page, it will likely always be pending because we only fetch pending
     return status === 'waiting_validation' ? LEGACY_STATUS.waitingValidation : LEGACY_STATUS.pending;
   };
 
@@ -104,18 +106,14 @@ const AnalystPatientList = () => {
   };
 
   const getPriorityLevel = (patient) => {
-    const dateObj = toSortableDate(getQueueTime(patient));
-    if (!dateObj) return null;
-    const diffMinutes = Math.max(0, Math.floor((Date.now() - dateObj.getTime()) / 60000));
-    if (diffMinutes <= 5) return 'low';
-    if (diffMinutes <= 15) return 'medium';
-    return 'high';
+    // Return the dedicated parameter if it exists, otherwise calculate
+    return patient.priority || calculatePriority(patient);
   };
 
   const getPriorityBadge = (level) => {
-    if (level === 'high') return { label: 'Sangat prioritas', className: 'bg-red-50 text-red-700 border border-red-100' };
-    if (level === 'medium') return { label: 'Penting', className: 'bg-amber-50 text-amber-700 border border-amber-100' };
-    if (level === 'low') return { label: 'Belum prioritas', className: 'bg-slate-50 text-slate-600 border border-slate-200' };
+    if (level === 'kritis') return { label: 'Kritis (> 15 menit)', className: 'bg-red-50 text-red-700 border border-red-100' };
+    if (level === 'tinggi') return { label: 'Tinggi (5-15 menit)', className: 'bg-amber-50 text-amber-700 border border-amber-100' };
+    if (level === 'normal') return { label: 'Normal (0-5 menit)', className: 'bg-blue-50 text-blue-700 border border-blue-100' };
     return null;
   };
 
@@ -142,6 +140,8 @@ const AnalystPatientList = () => {
     const matchSearch =
       patientName.includes(searchTerm.toLowerCase()) ||
       sampleCode.includes(searchTerm.toLowerCase());
+    
+    // Use the dedicated priority parameter for filtering
     const matchPriority = priorityFilter === 'Semua' || getPriorityLevel(p) === priorityFilter;
     return matchSearch && matchPriority;
   });
@@ -160,9 +160,24 @@ const AnalystPatientList = () => {
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedPatients = sortedPatients.slice(startIndex, startIndex + itemsPerPage);
 
+  const getPatientKey = (patient, index) => {
+    const key = String(
+      patient?.id_pasien ??
+      patient?.patient_id ??
+      patient?.patientId ??
+      patient?.id ??
+      patient?.specimen_id ??
+      patient?.specimenId ??
+      patient?.sampleCode ??
+      ''
+    ).trim();
+
+    if (key) return key;
+    return `${patient?.nama_lengkap || patient?.name || 'unknown'}-${index}`;
+  };
+
   // Handler untuk menuju halaman Upload/Proses
   const handleProcess = (patientId) => {
-    // Navigasi ke halaman detail klasifikasi (akan kita buat setelah ini)
     navigate(`/analyst/process/${patientId}`);
   };
 
@@ -172,7 +187,7 @@ const AnalystPatientList = () => {
       {/* HEADER */}
       <div>
         <h1 className="text-2xl font-bold text-gray-800">Daftar Pasien</h1>
-        <p className="text-gray-500 mt-1">Pilih pasien untuk mulai mengunggah sampel citra mikroskop.</p>
+        <p className="text-gray-500 mt-1">Daftar pasien yang belum diproses. Pasien yang sudah diproses dapat dilihat di menu Riwayat.</p>
       </div>
 
       {/* TABLE CARD */}
@@ -201,9 +216,9 @@ const AnalystPatientList = () => {
               onChange={(e) => setPriorityFilter(e.target.value)}
             >
               <option value="Semua">Semua Prioritas</option>
-              <option value="low">&lt; 5 menit (Belum prioritas)</option>
-              <option value="medium">6-15 menit (Penting)</option>
-              <option value="high">&gt; 15 menit (Sangat prioritas)</option>
+              <option value="normal">Normal (0 - 5 menit)</option>
+              <option value="tinggi">Tinggi (5 - 15 menit)</option>
+              <option value="kritis">Kritis (&gt; 15 menit)</option>
             </select>
           </div>
         </div>
@@ -226,11 +241,11 @@ const AnalystPatientList = () => {
                   <td colSpan="5" className="p-10 text-center text-gray-400">Memuat data pasien...</td>
                 </tr>
               ) : paginatedPatients.length > 0 ? (
-                paginatedPatients.map((patient) => (
-                  <tr key={patient.id || patient.id_pasien} className="hover:bg-blue-50/30 transition-colors group">
+                paginatedPatients.map((patient, index) => (
+                  <tr key={getPatientKey(patient, index)} className="hover:bg-blue-50/30 transition-colors group">
                     {/* Tanggal */}
                     <td className="p-5 text-center">
-                      <div className="flex items-center justify-center gap-2 text-gray-600 font-medium">
+                      <div className="flex flex-col items-center justify-center gap-1 text-gray-600 font-medium">
                         <span>{formatWaktuMasuk(getQueueTime(patient))}</span>
                         {(() => {
                           const badge = getPriorityBadge(getPriorityLevel(patient));
@@ -246,7 +261,7 @@ const AnalystPatientList = () => {
                     {/* Kode Pasien */}
                     <td className="p-5 text-center">
                       <span className="font-mono font-medium text-gray-700 bg-gray-100 px-2 py-1 rounded text-xs border border-gray-200">
-                        {patient.id_pasien || patient.sampleCode || '-'}
+                        {patient.id_pasien || patient.patient_id || patient.patientId || patient.id || patient.sampleCode || '-'}
                       </span>
                     </td>
 
@@ -277,27 +292,19 @@ const AnalystPatientList = () => {
                       })()}
                     </td>
 
-                    {/* Tombol Aksi (Paling Penting) */}
+                    {/* Tombol Aksi */}
                     <td className="p-5 text-center">
-                      {getQueueStatus(patient) === 'pending' ? (
-                        <button 
-                          onClick={() => handleProcess(patient.id || patient.id_pasien)}
-                          className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
-                        >
-                          Proses
-                        </button>
-                      ) : (
-                        <button 
-                          disabled
-                          className="bg-gray-100 text-gray-400 px-4 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 mx-auto cursor-not-allowed"
-                        >
-                          <CheckCircle size={14} /> Menunggu Dokter
-                        </button>
-                      )}
+                      <button 
+                        onClick={() => handleProcess(patient.id || patient.id_pasien)}
+                        className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
+                      >
+                        Proses
+                      </button>
                     </td>
 
                   </tr>
                 ))
+
               ) : (
                 <tr>
                   <td colSpan="5" className="p-10 text-center">

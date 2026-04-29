@@ -2,10 +2,6 @@ import React, { useEffect, useState } from 'react';
 import authService from '../../service/authService';
 import { 
   Search, 
-  Filter, 
-  Microscope, 
-  ArrowRight,
-  Clock,
   CheckCircle,
   AlertCircle
 } from 'lucide-react';
@@ -24,7 +20,7 @@ const AnalystPatientList = () => {
   const [patients, setPatients] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState(LEGACY_STATUS.pending);
+  const [priorityFilter, setPriorityFilter] = useState('Semua');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
@@ -95,6 +91,34 @@ const AnalystPatientList = () => {
     return status === 'waiting_validation' ? LEGACY_STATUS.waitingValidation : LEGACY_STATUS.pending;
   };
 
+  const getQueueTime = (patient) =>
+    patient.waktu_masuk || patient.created_at || patient.tanggal_masuk || patient.date || patient.uploaded_at;
+
+  const toSortableDate = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    const dateObj = new Date(normalized);
+    if (Number.isNaN(dateObj.getTime())) return null;
+    return dateObj;
+  };
+
+  const getPriorityLevel = (patient) => {
+    const dateObj = toSortableDate(getQueueTime(patient));
+    if (!dateObj) return null;
+    const diffMinutes = Math.max(0, Math.floor((Date.now() - dateObj.getTime()) / 60000));
+    if (diffMinutes <= 5) return 'low';
+    if (diffMinutes <= 15) return 'medium';
+    return 'high';
+  };
+
+  const getPriorityBadge = (level) => {
+    if (level === 'high') return { label: 'Sangat prioritas', className: 'bg-red-50 text-red-700 border border-red-100' };
+    if (level === 'medium') return { label: 'Penting', className: 'bg-amber-50 text-amber-700 border border-amber-100' };
+    if (level === 'low') return { label: 'Belum prioritas', className: 'bg-slate-50 text-slate-600 border border-slate-200' };
+    return null;
+  };
+
   const formatWaktuMasuk = (value) => {
     if (!value) return '-';
 
@@ -114,22 +138,27 @@ const AnalystPatientList = () => {
   const filteredPatients = patients.filter((p) => {
     const patientName = (p.nama_lengkap || p.name || '').toLowerCase();
     const sampleCode = (p.id_pasien || p.sampleCode || '').toLowerCase();
-    const patientStatus = getLegacyStatus(p);
 
     const matchSearch =
       patientName.includes(searchTerm.toLowerCase()) ||
       sampleCode.includes(searchTerm.toLowerCase());
-    const matchStatus = filterStatus === 'Semua Data' || patientStatus === filterStatus;
-    return matchSearch && matchStatus;
+    const matchPriority = priorityFilter === 'Semua' || getPriorityLevel(p) === priorityFilter;
+    return matchSearch && matchPriority;
   });
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterStatus]);
+  }, [searchTerm, priorityFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredPatients.length / itemsPerPage));
+  const sortedPatients = [...filteredPatients].sort((a, b) => {
+    const aDate = toSortableDate(getQueueTime(a));
+    const bDate = toSortableDate(getQueueTime(b));
+    return (aDate?.getTime() ?? Infinity) - (bDate?.getTime() ?? Infinity);
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sortedPatients.length / itemsPerPage));
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedPatients = filteredPatients.slice(startIndex, startIndex + itemsPerPage);
+  const paginatedPatients = sortedPatients.slice(startIndex, startIndex + itemsPerPage);
 
   // Handler untuk menuju halaman Upload/Proses
   const handleProcess = (patientId) => {
@@ -164,17 +193,17 @@ const AnalystPatientList = () => {
             />
           </div>
 
-          {/* Filter Status */}
-          <div className="relative w-full md:w-56">
-            <Filter size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+          {/* Filter Prioritas */}
+          <div className="relative w-full md:w-64">
             <select 
-              className="bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-9 pr-3 py-2"
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
+              className="bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full px-3 py-2"
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value)}
             >
-              <option value="Belum Diproses">Belum Diproses</option>
-              <option value="Menunggu Dokter">Menunggu Dokter</option>
-              <option value="Semua Data">Semua Data</option>
+              <option value="Semua">Semua Prioritas</option>
+              <option value="low">&lt; 5 menit (Belum prioritas)</option>
+              <option value="medium">6-15 menit (Penting)</option>
+              <option value="high">&gt; 15 menit (Sangat prioritas)</option>
             </select>
           </div>
         </div>
@@ -202,7 +231,15 @@ const AnalystPatientList = () => {
                     {/* Tanggal */}
                     <td className="p-5 text-center">
                       <div className="flex items-center justify-center gap-2 text-gray-600 font-medium">
-                        <span>{formatWaktuMasuk(patient.waktu_masuk || patient.created_at || patient.tanggal_masuk || patient.date)}</span>
+                        <span>{formatWaktuMasuk(getQueueTime(patient))}</span>
+                        {(() => {
+                          const badge = getPriorityBadge(getPriorityLevel(patient));
+                          return badge ? (
+                            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${badge.className}`}>
+                              {badge.label}
+                            </span>
+                          ) : null;
+                        })()}
                       </div>
                     </td>
 
@@ -266,7 +303,7 @@ const AnalystPatientList = () => {
                   <td colSpan="5" className="p-10 text-center">
                     <div className="flex flex-col items-center justify-center text-gray-400">
                       <AlertCircle size={40} className="mb-2 opacity-20" />
-                      <p>Tidak ada pasien dengan status "{filterStatus}".</p>
+                      <p>Tidak ada pasien pada kriteria ini.</p>
                     </div>
                   </td>
                 </tr>
@@ -277,7 +314,7 @@ const AnalystPatientList = () => {
 
         {/* Pagination Footer */}
         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm text-gray-500">
-          <span>Menampilkan {paginatedPatients.length} dari {filteredPatients.length} data</span>
+          <span>Menampilkan {paginatedPatients.length} dari {sortedPatients.length} data</span>
           <div className="flex gap-2 items-center">
             <button 
               className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors" 

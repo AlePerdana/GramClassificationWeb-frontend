@@ -7,9 +7,7 @@ import {
   ZoomIn,
   ZoomOut,
   X,
-  Eye,
-  Check,
-  Save
+  Check
 } from 'lucide-react';
 import { APP_CONFIG } from '../../utils/constant';
 
@@ -19,7 +17,12 @@ const GRAM_OPTIONS = ['Positif', 'Negatif'];
 
 const joinApiUrl = (path) => {
   if (!path) return '';
-  if (/^https?:\/\//i.test(path)) return path;
+  if (/^https?:\/\//i.test(path)) {
+    if (API_HOST.startsWith('https://') && /^http:\/\//i.test(path)) {
+      return path.replace(/^http:\/\//i, 'https://');
+    }
+    return path;
+  }
   return `${API_HOST}${path.startsWith('/') ? '' : '/'}${path}`;
 };
 
@@ -316,14 +319,6 @@ const ValidationDetail = () => {
             value={doctorNotes}
             onChange={(e) => setDoctorNotes(e.target.value)}
           />
-          <div className="mt-4 flex justify-end">
-            <button
-              type="button"
-              className="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors flex items-center gap-2"
-            >
-              <Save size={16} /> Simpan Catatan
-            </button>
-          </div>
         </div>
       </div>
 
@@ -389,7 +384,13 @@ const ValidationDetail = () => {
                           className="w-16 h-16 bg-slate-200 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all mx-auto"
                         >
                           {imageUrl ? (
-                            <img src={imageUrl} alt={`Crop ${startIndex + index + 1}`} className="w-full h-full object-cover" />
+                            <img
+                              src={imageUrl}
+                              alt={`Crop ${startIndex + index + 1}`}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                              decoding="async"
+                            />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-500">N/A</div>
                           )}

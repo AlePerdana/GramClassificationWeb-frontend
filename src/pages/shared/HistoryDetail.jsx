@@ -11,7 +11,12 @@ const API_HOST = APP_CONFIG.API_HOST;
 
 const joinApiUrl = (path) => {
   if (!path) return '';
-  if (/^https?:\/\//i.test(path)) return path;
+  if (/^https?:\/\//i.test(path)) {
+    if (API_HOST.startsWith('https://') && /^http:\/\//i.test(path)) {
+      return path.replace(/^http:\/\//i, 'https://');
+    }
+    return path;
+  }
   return `${API_HOST}${path.startsWith('/') ? '' : '/'}${path}`;
 };
 
@@ -142,7 +147,6 @@ const HistoryDetail = () => {
       },
       clinical: {
         date: detailData?.tanggal || detailData?.created_at || '-',
-        specimen: detailData?.jenis_spesimen || detailData?.specimen_type || 'Sputum',
         analyst: detailData?.analyst_name || detailData?.analyst || '-',
         doctor: detailData?.doctor_name || detailData?.dokter || '-'
       },
@@ -254,7 +258,6 @@ const HistoryDetail = () => {
           <h3 className="font-bold text-slate-800 flex items-center gap-2"><Activity size={18} className="text-blue-600" /> Data Klinis</h3>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div><p className="text-slate-500 text-xs">Tanggal Analisis</p><p className="font-semibold text-slate-700">{data.clinical.date}</p></div>
-            <div><p className="text-slate-500 text-xs">Jenis Spesimen</p><p className="font-semibold text-slate-700">{data.clinical.specimen}</p></div>
             <div><p className="text-slate-500 text-xs">Analis / Dokter</p><p className="font-semibold text-slate-700">{data.clinical.analyst} / {data.clinical.doctor}</p></div>
           </div>
         </div>
@@ -292,7 +295,13 @@ const HistoryDetail = () => {
                 {statusBadge}
 
                 <div className="aspect-square bg-slate-100 relative">
-                  <img src={crop.img} alt="Crop" className="w-full h-full object-cover" />
+                  <img
+                    src={crop.img}
+                    alt="Crop"
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                  />
                   {data.status === 'validated' && crop.status === 'rejected' && (
                     <div className="absolute inset-0 flex items-center justify-center">
                       <div className="w-full h-1 bg-red-500/80 -rotate-45 absolute"></div>

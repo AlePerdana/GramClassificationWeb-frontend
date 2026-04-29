@@ -14,13 +14,19 @@ import {
 const getDefaultWaktuMasuk = () => {
   const now = new Date();
   const pad = (num) => String(num).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const offsetMinutes = -now.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absOffset = Math.abs(offsetMinutes);
+  const offsetHours = pad(Math.floor(absOffset / 60));
+  const offsetMins = pad(absOffset % 60);
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}${sign}${offsetHours}:${offsetMins}`;
 };
 
 const normalizeWaktuMasuk = (value) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) return `${raw}:00`;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(raw)) return raw;
   return raw;
 };
 
@@ -48,6 +54,7 @@ const PatientManagement = () => {
     type: 'success',
     message: '',
   });
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const patientService = new PatientService();
 
@@ -177,17 +184,20 @@ const PatientManagement = () => {
 
   // --- 4. MENGHAPUS DATA PASIEN ---
   const handleDelete = (id, name) => {
-    if (window.confirm(`Apakah Anda yakin ingin menghapus data pasien ${name}?`)) {
-      (async () => {
-        try {
-          await patientService.deletePatient(id);
-          showToast('success', 'Pasien berhasil dihapus!');
-          fetchPatients();
-        } catch (error) {
-          console.error('Error deleting patient:', error);
-          showToast('error', `Gagal menghapus pasien: ${error?.message || 'Terjadi kesalahan.'}`);
-        }
-      })();
+    setDeleteTarget({ id, name });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget?.id) return;
+    try {
+      await patientService.deletePatient(deleteTarget.id);
+      showToast('success', 'Pasien berhasil dihapus!');
+      fetchPatients();
+    } catch (error) {
+      console.error('Error deleting patient:', error);
+      showToast('error', `Gagal menghapus pasien: ${error?.message || 'Terjadi kesalahan.'}`);
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -417,6 +427,37 @@ const PatientManagement = () => {
             </div>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(deleteTarget)}
+        title="Hapus Data Pasien"
+        onClose={() => setDeleteTarget(null)}
+        footer={(
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setDeleteTarget(null)}
+              className="flex-1 py-2.5 border border-gray-300 rounded-lg text-gray-600 font-medium hover:bg-gray-50"
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDelete}
+              className="flex-1 py-2.5 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 shadow-md"
+            >
+              Hapus Data
+            </button>
+          </div>
+        )}
+      >
+        <div className="space-y-2">
+          <p className="text-sm text-gray-700">
+            Apakah Anda yakin ingin menghapus data pasien <span className="font-semibold">{deleteTarget?.name || '-'}</span>?
+          </p>
+          <p className="text-xs text-red-500">Tindakan ini tidak dapat dibatalkan.</p>
+        </div>
       </Modal>
 
     </div>

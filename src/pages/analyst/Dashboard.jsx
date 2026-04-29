@@ -125,8 +125,6 @@ const Dashboard = () => {
     };
 
     fetchPatients();
-    const id = window.setInterval(fetchPatients, 10000);
-    return () => window.clearInterval(id);
   }, [API_BASE_URL, navigate]);
 
   const waitingQueue = pendingPatients.map((p) => ({

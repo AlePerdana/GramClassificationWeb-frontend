@@ -63,8 +63,6 @@ const History = () => {
     };
 
     fetchHistory();
-    const id = window.setInterval(fetchHistory, 10000);
-    return () => window.clearInterval(id);
   }, [API_BASE_URL, navigate]);
 
   const getStatusLabel = (item) => {

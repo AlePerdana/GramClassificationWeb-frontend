@@ -127,8 +127,6 @@ const Dashboard = () => {
     };
 
     fetchQueue();
-    const id = window.setInterval(fetchQueue, 10000);
-    return () => window.clearInterval(id);
   }, [navigate]);
 
   const queueCount = validationQueue.length;

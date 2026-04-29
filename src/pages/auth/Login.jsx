@@ -23,13 +23,35 @@ const Login = () => {
 
   // Health check to detect if backend is down
   useEffect(() => {
+    // If already logged in, redirect to respective dashboard
+    if (authService.isLoggedIn()) {
+      const role = authService.getRole();
+      if (role === 'admin') navigate('/admin');
+      else if (role === 'dokter') navigate('/doctor');
+      else if (role === 'analis') navigate('/analyst');
+    }
+
     const checkHealth = async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
       try {
         const response = await fetch(`${APP_CONFIG.API_HOST}/health`, { 
           method: 'GET',
-          headers: { 'ngrok-skip-browser-warning': 'true' } 
+          headers: { 'ngrok-skip-browser-warning': 'true' },
+          signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
+        
         if (!response.ok) throw new Error('Health check failed');
+
+        // Check if it's our actual JSON response
+        const data = await response.json();
+        if (data.status !== 'healthy' && data.status !== 'degraded') {
+          throw new Error('Invalid response');
+        }
+
         setIsBackendDown(false);
       } catch (error) {
         setIsBackendDown(true);
@@ -38,6 +60,7 @@ const Login = () => {
 
     checkHealth();
   }, []);
+
 
   // Handle perubahan input
   const handleChange = (e) => {

@@ -6,7 +6,7 @@ import {
   Upload, X, Play, Save, ArrowLeft, ArrowRight, Microscope, 
   CheckCircle, Activity, Maximize2, AlertTriangle, 
   Info, ZoomIn, ZoomOut, Move, Crop, Scan, Trash, AlertCircle,
-  Hand, MousePointer2
+  Hand, MousePointer2, RefreshCw
 } from 'lucide-react';
 import { APP_CONFIG } from '../../utils/constant';
 
@@ -36,7 +36,6 @@ const AnalysisProcess = () => {
   const [rois, setRois] = useState({}); 
   const [status, setStatus] = useState('idle');
   const [isUploading, setIsUploading] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [, setResult] = useState(null);
   const [imageMeta, setImageMeta] = useState({});
@@ -77,7 +76,12 @@ const AnalysisProcess = () => {
   const toAbsoluteUploadUrl = useCallback((path) => {
     const raw = String(path || '').trim();
     if (!raw) return '';
-    if (/^https?:\/\//i.test(raw)) return raw;
+    if (/^https?:\/\//i.test(raw)) {
+      if (API_HOST.startsWith('https://') && /^http:\/\//i.test(raw)) {
+        return raw.replace(/^http:\/\//i, 'https://');
+      }
+      return raw;
+    }
     const normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '');
     return `${API_HOST}/${normalized}`;
   }, [API_HOST]);
@@ -752,7 +756,7 @@ const AnalysisProcess = () => {
         : (Array.isArray(data?.detections) ? data.detections : []);
 
       if (results.length === 0) {
-        showToast('error', 'YOLO tidak menemukan objek pada gambar ini.');
+        showToast('error', 'Model AI belum menemukan objek pada gambar ini. Coba crop manual atau unggah gambar lain.');
         return;
       }
 
@@ -1344,7 +1348,6 @@ const AnalysisProcess = () => {
                   <img 
                     ref={imageElementRef}
                     src={images[activeImgIdx]?.previewUrl} 
-                    crossOrigin="anonymous"
                     alt="Sample" 
                     className="max-w-none block pointer-events-none" // pointer-events-none agar gambar tidak di-drag browser
                     style={{ maxHeight: '80vh' }} // Batas tinggi awal
@@ -1719,7 +1722,6 @@ const AnalysisProcess = () => {
               <img 
                 ref={modalImageRef}
                 src={images[activeImgIdx]?.previewUrl} 
-                crossOrigin="anonymous"
                 alt="Full Preview" 
                 className="max-w-none pointer-events-none"
                 style={{ maxHeight: '80vh' }}

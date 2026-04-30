@@ -895,6 +895,12 @@ const AnalysisProcess = () => {
 
         if (!classifyResponse.ok) {
           const err = await classifyResponse.json().catch(() => ({}));
+          if (classifyResponse.status === 409) {
+            showToast('error', err?.detail || 'Spesimen sudah diklasifikasi. Gunakan data yang sudah ada.');
+            setStatus('idle');
+            setMode('view');
+            return;
+          }
           throw new Error(err?.detail || `Gagal klasifikasi ROI gambar ke-${idx + 1}`);
         }
 

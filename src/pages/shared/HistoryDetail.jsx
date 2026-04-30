@@ -11,13 +11,15 @@ const API_HOST = APP_CONFIG.API_HOST;
 
 const joinApiUrl = (path) => {
   if (!path) return '';
-  if (/^https?:\/\//i.test(path)) {
-    if (API_HOST.startsWith('https://') && /^http:\/\//i.test(path)) {
-      return path.replace(/^http:\/\//i, 'https://');
+  const raw = String(path).trim();
+  if (/^https?:\/\//i.test(raw)) {
+    if (API_HOST.startsWith('https://') && /^http:\/\//i.test(raw)) {
+      return raw.replace(/^http:\/\//i, 'https://');
     }
-    return path;
+    return raw;
   }
-  return `${API_HOST}${path.startsWith('/') ? '' : '/'}${path}`;
+  const normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '');
+  return `${API_HOST}/${normalized}`;
 };
 
 const normalizeGram = (value) => {

@@ -201,7 +201,13 @@ const AnalysisProcess = () => {
 
       for (const draftImage of draftImages) {
         const specimenId = draftImage?.specimenId ?? draftImage?.specimen_id;
-        let previewUrl = draftImage?.previewUrl || toAbsoluteUploadUrl(draftImage?.filePath);
+        let previewUrl = draftImage?.previewUrl || '';
+        
+        // If previewUrl is a blob: URL, it's not valid across devices/sessions.
+        // Fallback to absolute upload URL from filePath.
+        if (!previewUrl || previewUrl.startsWith('blob:')) {
+          previewUrl = toAbsoluteUploadUrl(draftImage?.filePath);
+        }
 
         if (!previewUrl && specimenId) {
           try {

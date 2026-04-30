@@ -5,6 +5,18 @@ import authService from '../../service/authService';
 import { APP_CONFIG } from '../../utils/constant';
 
 const API_HOST = APP_CONFIG.API_HOST;
+const joinApiUrl = (path) => {
+  if (!path) return '';
+  const raw = String(path).trim();
+  if (/^https?:\/\//i.test(raw)) {
+    if (API_HOST.startsWith('https://') && /^http:\/\//i.test(raw)) {
+      return raw.replace(/^http:\/\//i, 'https://');
+    }
+    return raw;
+  }
+  const normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '');
+  return `${API_HOST}/${normalized}`;
+};
 
 const fallbackReportData = {
   id_laporan: 'RPT-000',
@@ -74,7 +86,7 @@ const MedicalReport = () => {
       gambar_bukti: Array.isArray(rawReport?.gambar_bukti)
         ? rawReport.gambar_bukti.map((img, index) => ({
             id: index + 1,
-            img: img?.image_url || '',
+            img: joinApiUrl(img?.image_url || ''),
             label: img?.label || 'Gambar Bukti',
           }))
         : [],

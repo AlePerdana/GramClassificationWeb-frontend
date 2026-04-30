@@ -15,17 +15,23 @@ const API_HOST = APP_CONFIG.API_HOST;
 const SHAPE_OPTIONS = ['Kokus', 'Basil', 'Spiral'];
 const GRAM_OPTIONS = ['Positif', 'Negatif'];
 
+const appendNgrokSkip = (url) => {
+  if (!/ngrok/i.test(url) || url.includes('ngrok-skip-browser-warning')) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}ngrok-skip-browser-warning=1`;
+};
+
 const joinApiUrl = (path) => {
   if (!path) return '';
   const raw = String(path).trim();
   if (/^https?:\/\//i.test(raw)) {
     if (API_HOST.startsWith('https://') && /^http:\/\//i.test(raw)) {
-      return raw.replace(/^http:\/\//i, 'https://');
+      return appendNgrokSkip(raw.replace(/^http:\/\//i, 'https://'));
     }
-    return raw;
+    return appendNgrokSkip(raw);
   }
   const normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '');
-  return `${API_HOST}/${normalized}`;
+  return appendNgrokSkip(`${API_HOST}/${normalized}`);
 };
 
 const normalizeShape = (value) => {

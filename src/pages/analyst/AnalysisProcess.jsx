@@ -18,6 +18,12 @@ const AnalysisProcess = () => {
   const API_HOST = APP_CONFIG.API_HOST;
   const draftStorageKey = useMemo(() => `analysis_draft_v1:${String(id || '')}`, [id]);
 
+  const appendNgrokSkip = useCallback((url) => {
+    if (!/ngrok/i.test(url) || url.includes('ngrok-skip-browser-warning')) return url;
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}ngrok-skip-browser-warning=1`;
+  }, []);
+
   // --- STATE ---
   const [patient, setPatient] = useState(null);
   const [isPatientLoading, setIsPatientLoading] = useState(true);
@@ -78,13 +84,13 @@ const AnalysisProcess = () => {
     if (!raw) return '';
     if (/^https?:\/\//i.test(raw)) {
       if (API_HOST.startsWith('https://') && /^http:\/\//i.test(raw)) {
-        return raw.replace(/^http:\/\//i, 'https://');
+        return appendNgrokSkip(raw.replace(/^http:\/\//i, 'https://'));
       }
-      return raw;
+      return appendNgrokSkip(raw);
     }
     const normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '');
-    return `${API_HOST}/${normalized}`;
-  }, [API_HOST]);
+    return appendNgrokSkip(`${API_HOST}/${normalized}`);
+  }, [API_HOST, appendNgrokSkip]);
 
   // --- SHORTCUTS KEYBOARD ---
   useEffect(() => {

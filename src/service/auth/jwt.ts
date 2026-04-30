@@ -19,8 +19,13 @@ export const getJwtExpiryMs = (jwt: string): number | null => {
 };
 
 export const isJwtExpired = (jwt: string, skewMs = 30_000): boolean => {
+    // If it doesn't look like a JWT (no 3 parts), we can't check expiry client-side.
+    // Assume it's an opaque token and let the API handle validation.
+    if (!jwt || String(jwt).split('.').length !== 3) return false;
+
     const expMs = getJwtExpiryMs(jwt);
-    if (!expMs) return true; // Treat invalid/non-JWT as expired
+    if (!expMs) return false; // Valid parts but no exp, assume not expired (or not a standard JWT)
+    
     return Date.now() + skewMs >= expMs;
 };
 

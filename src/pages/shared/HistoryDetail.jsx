@@ -6,6 +6,7 @@ import {
   Info, User, Activity, FileText
 } from 'lucide-react';
 import { APP_CONFIG } from '../../utils/constant';
+import NgrokImage from '../../components/common/NgrokImage';
 
 const API_HOST = APP_CONFIG.API_HOST;
 
@@ -303,7 +304,7 @@ const HistoryDetail = () => {
                 {statusBadge}
 
                 <div className="aspect-square bg-slate-100 relative">
-                  <img
+                  <NgrokImage
                     src={crop.img}
                     alt="Crop"
                     className="w-full h-full object-cover"

@@ -233,7 +233,7 @@ const AnalysisProcess = () => {
 
             if (response.ok) {
               const detail = await response.json();
-              previewUrl = detail?.main_image_url || '';
+              previewUrl = toAbsoluteUploadUrl(detail?.main_image_url || '');
             }
           } catch {
             // noop

@@ -10,6 +10,7 @@ import {
   Check
 } from 'lucide-react';
 import { APP_CONFIG } from '../../utils/constant';
+import NgrokImage from '../../components/common/NgrokImage';
 
 const API_HOST = APP_CONFIG.API_HOST;
 const SHAPE_OPTIONS = ['Kokus', 'Basil', 'Spiral'];
@@ -392,7 +393,7 @@ const ValidationDetail = () => {
                           className="w-16 h-16 bg-slate-200 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all mx-auto"
                         >
                           {imageUrl ? (
-                            <img
+                            <NgrokImage
                               src={imageUrl}
                               alt={`Crop ${startIndex + index + 1}`}
                               className="w-full h-full object-cover"
@@ -530,7 +531,7 @@ const ValidationDetail = () => {
               }}
             >
               {activeCrop.imageUrl ? (
-                <img
+                <NgrokImage
                   src={activeCrop.imageUrl}
                   alt="Preview"
                   className="max-w-none pointer-events-none"

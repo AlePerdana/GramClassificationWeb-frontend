@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft, Activity } from 'lucide-react';
 import authService from '../../service/authService';
 import { APP_CONFIG } from '../../utils/constant';
+import NgrokImage from '../../components/common/NgrokImage';
 
 const API_HOST = APP_CONFIG.API_HOST;
 const appendNgrokSkip = (url) => {
@@ -256,7 +257,7 @@ const MedicalReport = () => {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
             {reportData.gambar_bukti.map((img) => (
               <div key={img.id} className="border border-gray-300 p-2 rounded w-full max-w-[170px]">
-                <img src={img.img} alt={img.label} className="w-full h-auto object-cover border border-gray-200" />
+                <NgrokImage src={img.img} alt={img.label} className="w-full h-auto object-cover border border-gray-200" />
                 <p className="text-[10px] text-center font-bold mt-2">{img.label}</p>
               </div>
             ))}

@@ -194,8 +194,10 @@ const ModelManagement = () => {
         const mapped = (result?.data || []).map(mapApiModelToUiModel);
 
         if (cancelled) return;
-        if (activeTab === 'detection') setYoloModels(mapped);
-        else setCnnModels(mapped);
+        if (mapped.length > 0) {
+          if (activeTab === 'detection') setYoloModels(mapped);
+          else setCnnModels(mapped);
+        }
       } catch (err) {
         if (cancelled) return;
         setModelsError(err?.message || 'Gagal mengambil daftar model.');

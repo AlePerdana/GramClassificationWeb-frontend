@@ -2,9 +2,9 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import authService from '../../service/authService';
-import { 
-  Upload, X, Play, Save, ArrowLeft, ArrowRight, Microscope, 
-  CheckCircle, Activity, Maximize2, AlertTriangle, 
+import {
+  Upload, X, Play, Save, ArrowLeft, ArrowRight, Microscope,
+  CheckCircle, Activity, Maximize2, AlertTriangle,
   Info, ZoomIn, ZoomOut, Move, Crop, Scan, Trash, AlertCircle,
   Hand, MousePointer2, RefreshCw
 } from 'lucide-react';
@@ -27,19 +27,19 @@ const AnalysisProcess = () => {
   // --- STATE ---
   const [patient, setPatient] = useState(null);
   const [isPatientLoading, setIsPatientLoading] = useState(true);
-  const [images, setImages] = useState([]); 
+  const [images, setImages] = useState([]);
   const [uploadedSpecimens, setUploadedSpecimens] = useState([]);
   const [activeImgIdx, setActiveImgIdx] = useState(0);
   const [hoveredRoiIndex, setHoveredRoiIndex] = useState(null);
   const [showFullPreview, setShowFullPreview] = useState(false);
-  
+
   // Transform State (Zoom & Pan)
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  
+
   // Logic State
   const [mode, setMode] = useState('drag'); // 'view', 'drag', 'manual_crop', 'auto_detect'
-  const [rois, setRois] = useState({}); 
+  const [rois, setRois] = useState({});
   const [status, setStatus] = useState('idle');
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -49,6 +49,18 @@ const AnalysisProcess = () => {
     open: false,
     type: 'success',
     message: '',
+  });
+
+  const [specimenMeta, setSpecimenMeta] = useState({
+    accession_number: '',
+    specimen_type: '',
+    doctor_sender: '',
+    clinical_diagnosis: '',
+    collected_at: '',
+    received_at: '',
+    microscope_type: '',
+    magnification: '',
+    analyst_note: '',
   });
 
   // Interaction Refs & State
@@ -79,6 +91,51 @@ const AnalysisProcess = () => {
     }, 4000);
   }, []);
 
+  const normalizeDateTimeLocal = useCallback((value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) return `${raw}:00`;
+    return raw;
+  }, []);
+
+  const generateAccessionNumber = useCallback(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const random = Math.floor(1000 + Math.random() * 9000);
+    const id = `ACC-${year}${month}${day}-${random}`;
+    setSpecimenMeta(prev => ({ ...prev, accession_number: id }));
+  }, []);
+
+  const readImageResolution = useCallback(async (file) => {
+    if (!file) return '';
+    if (typeof createImageBitmap === 'function') {
+      try {
+        const bitmap = await createImageBitmap(file);
+        const resolution = `${bitmap.width}x${bitmap.height}`;
+        if (typeof bitmap.close === 'function') bitmap.close();
+        return resolution;
+      } catch {
+        return '';
+      }
+    }
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        resolve(`${img.naturalWidth}x${img.naturalHeight}`);
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = () => {
+        resolve('');
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    });
+  }, []);
+
   const toAbsoluteUploadUrl = useCallback((path) => {
     const raw = String(path || '').trim();
     if (!raw) return '';
@@ -98,7 +155,7 @@ const AnalysisProcess = () => {
       // Abaikan jika sedang mengetik di input (jika ada)
       if (e.target.tagName === 'INPUT') return;
 
-      switch(e.key.toLowerCase()) {
+      switch (e.key.toLowerCase()) {
         case 'b':
           setMode('manual_crop');
           break;
@@ -135,9 +192,10 @@ const AnalysisProcess = () => {
 
   useEffect(() => {
     const fetchPatientData = async () => {
+      if (!id) return;
       setIsPatientLoading(true);
       try {
-        const response = await fetch(`${API_BASE_URL}/patients`, {
+        const response = await fetch(`${API_BASE_URL}/patients/${id}`, {
           method: 'GET',
           headers: {
             Accept: 'application/json',
@@ -153,21 +211,7 @@ const AnalysisProcess = () => {
 
         if (response.ok) {
           const data = await response.json();
-          const patientList = Array.isArray(data)
-            ? data
-            : Array.isArray(data?.data)
-              ? data.data
-              : Array.isArray(data?.results)
-                ? data.results
-            : Array.isArray(data?.items)
-              ? data.items
-              : [];
-          const numericId = Number(id);
-          const currentPatient = patientList.find((p) => {
-            const pid = Number(p.id ?? p.id_pasien);
-            return Number.isNaN(numericId) ? String(p.id ?? p.id_pasien) === String(id) : pid === numericId;
-          });
-          setPatient(currentPatient || null);
+          setPatient(data);
         } else {
           setPatient(null);
           console.error('Gagal mengambil data pasien');
@@ -208,7 +252,7 @@ const AnalysisProcess = () => {
       for (const draftImage of draftImages) {
         const specimenId = draftImage?.specimenId ?? draftImage?.specimen_id;
         let previewUrl = draftImage?.previewUrl || '';
-        
+
         // If previewUrl is a blob: URL, it's not valid across devices/sessions.
         // Fallback to absolute upload URL from filePath.
         if (!previewUrl || previewUrl.startsWith('blob:')) {
@@ -256,14 +300,20 @@ const AnalysisProcess = () => {
 
       const restoredUploaded = Array.isArray(parsed.uploadedSpecimens)
         ? parsed.uploadedSpecimens
-            .map((s) => ({ id: s?.id ?? s?.specimen_id }))
-            .filter((s) => s.id !== undefined && s.id !== null)
+          .map((s) => ({ id: s?.id ?? s?.specimen_id }))
+          .filter((s) => s.id !== undefined && s.id !== null)
         : restoredImages
-            .map((img) => ({ id: img.specimenId }))
-            .filter((s) => s.id !== undefined && s.id !== null);
+          .map((img) => ({ id: img.specimenId }))
+          .filter((s) => s.id !== undefined && s.id !== null);
 
       setUploadedSpecimens(restoredUploaded);
       setRois(parsed.rois && typeof parsed.rois === 'object' ? parsed.rois : {});
+      if (parsed.specimenMeta && typeof parsed.specimenMeta === 'object') {
+        setSpecimenMeta((prev) => ({
+          ...prev,
+          ...parsed.specimenMeta,
+        }));
+      }
       setActiveImgIdx(
         Math.max(
           0,
@@ -311,12 +361,13 @@ const AnalysisProcess = () => {
       activeImgIdx,
       images: serializableImages,
       rois,
+      specimenMeta,
       uploadedSpecimens: serializableUploaded,
       savedAt: new Date().toISOString(),
     };
 
     localStorage.setItem(draftStorageKey, JSON.stringify(payload));
-  }, [activeImgIdx, draftStorageKey, id, images, isSubmitted, rois, toAbsoluteUploadUrl, uploadedSpecimens]);
+  }, [activeImgIdx, draftStorageKey, id, images, isSubmitted, rois, specimenMeta, toAbsoluteUploadUrl, uploadedSpecimens]);
 
   const handleImageUpload = async (e) => {
     const files = Array.from(e.target.files);
@@ -340,6 +391,18 @@ const AnalysisProcess = () => {
       for (const file of files) {
         const formData = new FormData();
         formData.append('patient_id', id);
+        formData.append('accession_number', specimenMeta.accession_number || '');
+        formData.append('specimen_type', specimenMeta.specimen_type || '');
+        formData.append('doctor_sender', specimenMeta.doctor_sender || '');
+        formData.append('clinical_diagnosis', specimenMeta.clinical_diagnosis || '');
+        formData.append('collected_at', normalizeDateTimeLocal(specimenMeta.collected_at));
+        formData.append('received_at', normalizeDateTimeLocal(specimenMeta.received_at));
+        formData.append('microscope_type', specimenMeta.microscope_type || '');
+        formData.append('magnification', specimenMeta.magnification || '');
+        formData.append('analyst_note', specimenMeta.analyst_note || '');
+
+        const resolution = await readImageResolution(file);
+        if (resolution) formData.append('image_resolution', resolution);
         formData.append('file', file);
 
         const response = await fetch(`${API_BASE_URL}/analyst/upload-specimen`, {
@@ -374,18 +437,27 @@ const AnalysisProcess = () => {
 
         if (specimenId) {
           setUploadedSpecimens((prev) => {
-            if (prev.find((s) => (s.id ?? s.specimen_id) === specimenId)) return prev;
+            const exists = prev.some((s) => (s.id ?? s.specimen_id) === specimenId);
+            if (exists) return prev;
             return [...prev, { id: specimenId }];
           });
         }
       }
 
       if (uploadedImageItems.length === 0) {
-        showToast('error', 'Tidak ada gambar yang berhasil diunggah ke server.');
+        showToast('error', 'Tidak ada gambar baru yang berhasil diunggah.');
         return;
       }
 
-      setImages((prev) => [...prev, ...uploadedImageItems]);
+      setImages((prev) => {
+        const next = [...prev];
+        uploadedImageItems.forEach(item => {
+          if (!next.some(existing => existing.specimenId === item.specimenId)) {
+            next.push(item);
+          }
+        });
+        return next;
+      });
       setStatus('idle');
       setZoom(1);
       setPan({ x: 0, y: 0 });
@@ -477,29 +549,29 @@ const AnalysisProcess = () => {
     const imgEl = imageRef.current;
     const contEl = containerRef.current;
     if (!imgEl || !contEl) return;
-    
+
     const contRect = contEl.getBoundingClientRect();
-    
+
     if (!isModal) {
       // Main preview: resize to 80% of container
       const maxW = contRect.width * 0.8;
       const maxH = contRect.height * 0.8;
-      
+
       const nw = imgEl.naturalWidth || 1;
       const nh = imgEl.naturalHeight || 1;
-      
+
       const imgRatio = nw / nh;
       const contRatio = maxW / maxH;
-      
+
       let targetW, targetH;
       if (imgRatio > contRatio) {
-         targetW = maxW;
-         targetH = maxW / imgRatio;
+        targetW = maxW;
+        targetH = maxW / imgRatio;
       } else {
-         targetH = maxH;
-         targetW = maxH * imgRatio;
+        targetH = maxH;
+        targetW = maxH * imgRatio;
       }
-      
+
       imgEl.style.width = `${targetW}px`;
       imgEl.style.height = `${targetH}px`;
       imgEl.style.maxHeight = 'none';
@@ -508,10 +580,10 @@ const AnalysisProcess = () => {
       // Modal preview: sync size with main image to preserve ROI coordinates
       const mainImgEl = imageElementRef.current;
       if (mainImgEl) {
-         imgEl.style.width = mainImgEl.style.width;
-         imgEl.style.height = mainImgEl.style.height;
-         imgEl.style.maxHeight = 'none';
-         imgEl.style.maxWidth = 'none';
+        imgEl.style.width = mainImgEl.style.width;
+        imgEl.style.height = mainImgEl.style.height;
+        imgEl.style.maxHeight = 'none';
+        imgEl.style.maxWidth = 'none';
       }
     }
 
@@ -619,13 +691,13 @@ const AnalysisProcess = () => {
   };
 
   // --- MOUSE EVENT HANDLERS (CORE LOGIC) ---
-  
+
   // Helper: Dapatkan koordinat mouse relatif terhadap gambar (memperhitungkan zoom & pan)
   const getRelPos = (clientX, clientY) => {
     const container = showFullPreview ? modalImgRef.current : imgContainerRef.current;
     if (!container) return { x: 0, y: 0 };
     const rect = container.getBoundingClientRect();
-    
+
     // Rumus: (PosisiMouse - PosisiContainer - GeseranPan) / Zoom
     return {
       x: (clientX - rect.left - pan.x) / zoom,
@@ -635,12 +707,12 @@ const AnalysisProcess = () => {
 
   const handleMouseDown = (e) => {
     // Cegah drag default browser pada gambar
-    e.preventDefault(); 
-    
+    e.preventDefault();
+
     if (mode === 'drag') {
       setIsInteracting(true);
       setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-    } 
+    }
     else if (mode === 'manual_crop') {
       setIsInteracting(true);
       const pos = getRelPos(e.clientX, e.clientY);
@@ -657,10 +729,10 @@ const AnalysisProcess = () => {
         x: e.clientX - dragStart.x,
         y: e.clientY - dragStart.y
       });
-    } 
+    }
     else if (mode === 'manual_crop') {
       const currentPos = getRelPos(e.clientX, e.clientY);
-      
+
       // Hitung kotak dengan dukungan drag ke segala arah (kiri-atas, kanan-bawah, dsb)
       const x = Math.min(startPos.x, currentPos.x);
       const y = Math.min(startPos.y, currentPos.y);
@@ -695,7 +767,7 @@ const AnalysisProcess = () => {
       handleMouseDown({
         clientX: touch.clientX,
         clientY: touch.clientY,
-        preventDefault: () => {},
+        preventDefault: () => { },
       });
     }
   };
@@ -706,7 +778,7 @@ const AnalysisProcess = () => {
       handleMouseMove({
         clientX: touch.clientX,
         clientY: touch.clientY,
-        preventDefault: () => {},
+        preventDefault: () => { },
       });
     }
   };
@@ -883,6 +955,25 @@ const AnalysisProcess = () => {
           source: roi.source || 'manual',
         }));
 
+        const activeMeta = imageMeta[idx] || null;
+        const resolution = activeMeta?.naturalW && activeMeta?.naturalH
+          ? `${activeMeta.naturalW}x${activeMeta.naturalH}`
+          : '';
+
+        const classifyPayload = {
+          rois: finalRoisInNaturalPixels,
+          analyst_note: specimenMeta.analyst_note || undefined,
+          accession_number: specimenMeta.accession_number || undefined,
+          specimen_type: specimenMeta.specimen_type || undefined,
+          clinical_diagnosis: specimenMeta.clinical_diagnosis || undefined,
+          doctor_sender: specimenMeta.doctor_sender || undefined,
+          image_metadata: {
+            microscope_type: specimenMeta.microscope_type || undefined,
+            magnification: specimenMeta.magnification || undefined,
+            image_resolution: resolution || undefined,
+          },
+        };
+
         const classifyResponse = await fetch(`${API_BASE_URL}/analyst/classify/${specimenId}`, {
           method: 'POST',
           headers: {
@@ -890,7 +981,7 @@ const AnalysisProcess = () => {
             Accept: 'application/json',
             ...authService.getAuthorizationHeader(),
           },
-          body: JSON.stringify({ rois: finalRoisInNaturalPixels }),
+          body: JSON.stringify(classifyPayload),
         });
 
         if (classifyResponse.status === 401) {
@@ -966,6 +1057,7 @@ const AnalysisProcess = () => {
         ]
       });
 
+      localStorage.removeItem(draftStorageKey);
       setIsSubmitted(true);
       setStatus('done');
       setMode('view');
@@ -1183,648 +1275,710 @@ const AnalysisProcess = () => {
 
   return (
     <>
-    {toast.open && (
-      <div className="fixed top-4 right-4 z-[10000]">
-        <div className={`min-w-[280px] max-w-sm px-4 py-3 rounded-xl shadow-lg border text-sm ${toast.type === 'success' ? 'bg-white border-green-200 text-green-700' : 'bg-white border-red-200 text-red-700'}`}>
-          <div className="flex items-start gap-2">
-            {toast.type === 'success' ? (
-              <CheckCircle size={18} className="mt-0.5" />
-            ) : (
-              <AlertCircle size={18} className="mt-0.5" />
-            )}
-            <div className="font-semibold leading-snug">{toast.message}</div>
-            <button
-              type="button"
-              onClick={() => setToast((prev) => ({ ...prev, open: false }))}
-              className="ml-auto text-gray-400 hover:text-gray-600"
-              aria-label="Tutup"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
-    <div className="max-w-7xl mx-auto pb-10 mb-6 min-h-[calc(100vh-100px)] lg:h-[calc(100vh-100px)] flex flex-col bg-slate-50/80 p-2 md:p-4 rounded-2xl relative">
-      {(status === 'analyzing' || status === 'auto_detecting') && (
-        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm transition-all duration-300">
-          <div className="bg-white p-6 rounded-2xl shadow-2xl flex flex-col items-center w-80 text-center animate-in zoom-in-95">
-            <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-
-            <h3 className="text-lg font-bold text-slate-800">
-              {status === 'auto_detecting' ? 'AI YOLO Memindai...' : 'AI CNN Memproses...'}
-            </h3>
-            <p className="text-sm text-slate-500 mt-2">
-              {status === 'auto_detecting'
-                ? 'Mencari dan mendeteksi bakteri secara otomatis. Mohon tunggu.'
-                : `Mengekstrak ${currentRois.length} gambar dan menjalankan klasifikasi.`}
-            </p>
-
-            <div className="w-full h-1.5 bg-slate-100 rounded-full mt-5 overflow-hidden relative">
-              <div className="absolute top-0 left-0 h-full bg-blue-600 rounded-full animate-pulse transition-all duration-500 w-full opacity-75"></div>
-              <div className="absolute top-0 left-0 h-full w-1/3 bg-white/40 skew-x-[-20deg] animate-[translate-x-full_1.5s_infinite]"></div>
+      {toast.open && (
+        <div className="fixed top-4 right-4 z-[10000]">
+          <div className={`min-w-[280px] max-w-sm px-4 py-3 rounded-xl shadow-lg border text-sm ${toast.type === 'success' ? 'bg-white border-green-200 text-green-700' : 'bg-white border-red-200 text-red-700'}`}>
+            <div className="flex items-start gap-2">
+              {toast.type === 'success' ? (
+                <CheckCircle size={18} className="mt-0.5" />
+              ) : (
+                <AlertCircle size={18} className="mt-0.5" />
+              )}
+              <div className="font-semibold leading-snug">{toast.message}</div>
+              <button
+                type="button"
+                onClick={() => setToast((prev) => ({ ...prev, open: false }))}
+                className="ml-auto text-gray-400 hover:text-gray-600"
+                aria-label="Tutup"
+              >
+                ×
+              </button>
             </div>
           </div>
         </div>
       )}
-      
-      {/* HEADER NAVIGASI */}
-      <div className="flex items-center justify-between mb-4">
-        <button 
-          onClick={handleBack}
-          className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors font-medium text-sm md:text-base"
-        >
-          <ArrowLeft size={18} className="md:w-5 md:h-5" /> Kembali ke Daftar
-        </button>
-      </div>
+      <div className="max-w-7xl mx-auto pb-10 mb-6 min-h-[calc(100vh-100px)] lg:h-[calc(100vh-100px)] flex flex-col bg-slate-50/80 p-2 md:p-4 rounded-2xl relative">
+        {(status === 'analyzing' || status === 'auto_detecting') && (
+          <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm transition-all duration-300">
+            <div className="bg-white p-6 rounded-2xl shadow-2xl flex flex-col items-center w-80 text-center animate-in zoom-in-95">
+              <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-4"></div>
 
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <Microscope className="text-blue-600" /> Analisis Spesimen Baru
-          </h2>
-          <p className="text-slate-500 text-sm mt-1">
-            Pasien: <span className="font-bold text-slate-700">{patient.nama_lengkap}</span> | ID: <span className="font-mono">{patient.id_pasien}</span> | {patient.jenis_kelamin}
-          </p>
-        </div>
-      </div>
+              <h3 className="text-lg font-bold text-slate-800">
+                {status === 'auto_detecting' ? 'AI YOLO Memindai...' : 'AI CNN Memproses...'}
+              </h3>
+              <p className="text-sm text-slate-500 mt-2">
+                {status === 'auto_detecting'
+                  ? 'Mencari dan mendeteksi bakteri secara otomatis. Mohon tunggu.'
+                  : `Mengekstrak ${currentRois.length} gambar dan menjalankan klasifikasi.`}
+              </p>
 
-      {/* --- UI STEPPER --- */}
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-4 hidden md:flex items-center justify-between w-full">
-        {steps.map((step, index) => (
-          <React.Fragment key={step.num}>
-            <div className="flex items-center gap-3">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-colors ${
-                currentStep > step.num
-                  ? 'bg-green-500 text-white'
-                  : currentStep === step.num
-                    ? 'bg-blue-600 text-white ring-4 ring-blue-100'
-                    : 'bg-slate-100 text-slate-400'
-              }`}>
-                {currentStep > step.num ? <CheckCircle size={18} /> : step.num}
+              <div className="w-full h-1.5 bg-slate-100 rounded-full mt-5 overflow-hidden relative">
+                <div className="absolute top-0 left-0 h-full bg-blue-600 rounded-full animate-pulse transition-all duration-500 w-full opacity-75"></div>
+                <div className="absolute top-0 left-0 h-full w-1/3 bg-white/40 skew-x-[-20deg] animate-[translate-x-full_1.5s_infinite]"></div>
               </div>
-              <span className={`text-sm font-semibold ${currentStep >= step.num ? 'text-slate-800' : 'text-slate-400'}`}>
-                {step.label}
-              </span>
-            </div>
-            {index < steps.length - 1 && (
-              <div className={`flex-1 h-1 mx-4 rounded-full ${currentStep > step.num ? 'bg-green-500' : 'bg-slate-100'}`}></div>
-            )}
-          </React.Fragment>
-        ))}
-      </div>
-
-      {/* Mobile Stepper (Versi Ringkas) */}
-      <div className="md:hidden bg-white p-3 rounded-xl shadow-sm border border-slate-200 mb-4 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
-          {currentStep}
-        </div>
-        <div>
-          <p className="text-xs text-slate-500 font-medium">Langkah {currentStep} dari 3</p>
-          <p className="text-sm font-bold text-slate-800">{steps[currentStep - 1]?.label}</p>
-        </div>
-      </div>
-
-      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 h-full flex-1">
-        
-        {/* --- KOLOM KIRI: AREA GAMBAR & EDITOR --- */}
-        <div className={`min-h-[50vh] lg:min-h-0 flex-1 flex flex-col rounded-2xl overflow-hidden shadow-xl shadow-slate-400/40 relative group select-none ${images.length ? 'bg-gray-900' : 'bg-white'}`}> 
-          
-          {images.length > 0 ? (
-            <>
-              {/* Toolbar Atas (Zoom & Reset) */}
-              <div className="absolute top-2 md:top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 md:gap-2 bg-gray-800/90 backdrop-blur-md p-1 md:p-1.5 rounded-lg border border-gray-700 shadow-xl w-max max-w-[calc(100%-1rem)] overflow-x-auto scrollbar-hide pointer-events-auto">
-                <button onClick={(e) => { e.stopPropagation(); handleZoom(-0.2); }} className="p-1 md:p-2 text-white hover:bg-gray-700 rounded active:bg-gray-600" title="Zoom Out"><ZoomOut size={16} className="md:w-[18px] md:h-[18px]"/></button>
-                <span className="text-[10px] md:text-xs font-mono text-gray-300 w-8 md:w-12 text-center">{Math.round(zoom * 100)}%</span>
-                <button onClick={(e) => { e.stopPropagation(); handleZoom(0.2); }} className="p-1 md:p-2 text-white hover:bg-gray-700 rounded active:bg-gray-600" title="Zoom In"><ZoomIn size={16} className="md:w-[18px] md:h-[18px]"/></button>
-                <div className="w-px h-3 md:h-4 bg-gray-600 mx-0.5 md:mx-1"></div>
-                <button onClick={(e) => { e.stopPropagation(); resetView(); }} className="px-2 py-1 md:px-3 md:py-2 text-white text-[10px] md:text-xs font-semibold hover:bg-gray-700 rounded active:bg-gray-600" title="Reset View">Reset</button>
-                <div className="w-px h-3 md:h-4 bg-gray-600 mx-0.5 md:mx-1"></div>
-                <button onClick={(e) => { e.stopPropagation(); setShowFullPreview(true); }} className="p-1 md:p-2 text-white hover:bg-gray-700 rounded active:bg-gray-600" title="Full Preview">
-                  <Maximize2 size={16} className="md:w-[18px] md:h-[18px]" />
-                </button>
-              </div>
-
-              {/* VIEWPORT UTAMA */}
-              {/* Wrapper ini menangkap event mouse */}
-              <div 
-                ref={imgContainerRef}
-                className={`relative flex-1 overflow-hidden bg-black w-full h-full ${mode !== 'view' ? 'touch-none' : ''} ${
-                  mode === 'drag'
-                    ? (isInteracting ? 'cursor-grabbing' : 'cursor-grab')
-                    : mode === 'remove'
-                      ? 'cursor-not-allowed'
-                      : mode === 'manual_crop'
-                        ? 'cursor-crosshair'
-                        : 'cursor-default'
-                }`}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp} // Stop dragging/drawing jika keluar area
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                onTouchCancel={handleTouchEnd}
-              >
-                {/* Navigasi Gambar (Preview Box) */}
-                {images.length > 1 && (
-                  <>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handlePrevImg();
-                      }}
-                      className="absolute left-1 md:left-2 top-1/2 -translate-y-1/2 z-30 p-2 md:p-2.5 bg-black/45 border border-white/20 text-white/80 hover:text-white hover:bg-black/65 rounded-full transition-all pointer-events-auto"
-                      title="Gambar Sebelumnya"
-                    >
-                      <ArrowLeft size={18} className="md:w-5 md:h-5" />
-                    </button>
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleNextImg();
-                      }}
-                      className="absolute right-1 md:right-2 top-1/2 -translate-y-1/2 z-30 p-2 md:p-2.5 bg-black/45 border border-white/20 text-white/80 hover:text-white hover:bg-black/65 rounded-full transition-all pointer-events-auto"
-                      title="Gambar Berikutnya"
-                    >
-                      <ArrowRight size={18} className="md:w-5 md:h-5" />
-                    </button>
-                  </>
-                )}
-
-                {/* TRANSFORM LAYER: Ini yang bergerak saat dipan/zoom */}
-                <div 
-                  style={{ 
-                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                    transformOrigin: '0 0', // Penting agar koordinat konsisten
-                    transition: isInteracting ? 'none' : 'transform 0.1s ease-out' // Smooth zoom, instant drag
-                  }}
-                  className="inline-block relative" // Bungkus konten agar size pas dengan gambar
-                >
-                  <img 
-                    ref={imageElementRef}
-                    src={images[activeImgIdx]?.previewUrl} 
-                    alt="Sample" 
-                    className="max-w-none block pointer-events-none" // pointer-events-none agar gambar tidak di-drag browser
-                    style={{ maxHeight: '80vh' }} // Batas tinggi awal
-                    onDragStart={(e) => e.preventDefault()}
-                    onLoad={() => {
-                      centerImageFor(imgContainerRef, imageElementRef, false);
-                      updateImageMeta(activeImgIdx, imageElementRef.current);
-                    }}
-                  />
-                  
-                  {/* --- ROI RENDER LAYER (Inside Transform) --- */}
-                  
-                  {/* 1. Existing ROIs */}
-                  {currentRois.map((box, idx) => (
-                    <div 
-                      key={idx}
-                      onMouseEnter={() => setHoveredRoiIndex(idx)}
-                      onMouseLeave={() => setHoveredRoiIndex(null)}
-                      onClick={(e) => {
-                        if (mode === 'remove') {
-                          e.stopPropagation();
-                          deleteRoi(idx);
-                        }
-                      }}
-                      className={`absolute border-2 ${
-                        mode === 'remove'
-                          ? 'cursor-pointer hover:bg-red-500/40 border-red-500'
-                          : hoveredRoiIndex === idx
-                            ? 'border-red-500 bg-red-500/20'
-                            : box.label === 'Auto'
-                              ? 'border-green-400'
-                              : 'border-blue-400'
-                      } transition-colors`}
-                      style={{
-                        left: box.x, 
-                        top: box.y, 
-                        width: box.width ?? box.w, 
-                        height: box.height ?? box.h,
-                        pointerEvents: 'auto'
-                      }}
-                    />
-                  ))}
-
-                  {/* 2. Drawing Box (Sedang digambar) */}
-                  {isInteracting && mode === 'manual_crop' && currentBox && (
-                    <div 
-                      className="absolute border-2 border-yellow-400 bg-yellow-400/20 z-50"
-                      style={{
-                        left: currentBox.x, 
-                        top: currentBox.y, 
-                        width: currentBox.w, 
-                        height: currentBox.h
-                      }}
-                    />
-                  )}
-                </div>
-              </div>
-
-              {/* Tips Shortcut (Pojok Kanan Bawah) */}
-              <div className="hidden lg:block absolute bottom-4 right-4 z-30 bg-black/60 text-white px-3 py-2 rounded-lg text-[10px] backdrop-blur-sm pointer-events-none space-y-1">
-                <p><span className="font-bold text-yellow-400">B</span> : Box Mode</p>
-                <p><span className="font-bold text-yellow-400">D</span> : Drag Mode</p>
-                <p><span className="font-bold text-red-400">R</span> : Remove Mode {mode === 'remove' && '(ON)'}</p>
-              </div>
-
-              {/* Mode Indicator (Pojok Kiri Bawah) */}
-              <div className="absolute bottom-2 md:bottom-4 left-2 md:left-4 z-30 w-full max-w-[calc(100%-1rem)] overflow-x-auto scrollbar-hide pointer-events-auto">
-                <div className="flex gap-1.5 md:gap-2 w-max">
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMode(prev => prev === 'drag' ? 'view' : 'drag');
-                    }}
-                    className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold backdrop-blur-md shadow-sm flex items-center gap-1.5 md:gap-2 transition-all ${
-                      mode === 'drag' ? 'bg-white text-gray-900' : 'bg-gray-800/80 text-gray-400 hover:bg-gray-700'
-                    }`}
-                  >
-                    <Hand size={12} className="md:w-[14px] md:h-[14px]" /> Geser <span className="hidden md:inline">(D)</span>
-                  </button>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (mode === 'auto_detect') clearRois();
-                      setMode(prev => prev === 'manual_crop' ? 'view' : 'manual_crop');
-                    }}
-                    className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold backdrop-blur-md shadow-sm flex items-center gap-1.5 md:gap-2 transition-all ${
-                      mode === 'manual_crop' ? 'bg-blue-600 text-white' : 'bg-gray-800/80 text-gray-400 hover:bg-gray-700'
-                    }`}
-                  >
-                    <Crop size={12} className="md:w-[14px] md:h-[14px]" /> Crop ROI <span className="hidden md:inline">(B)</span>
-                  </button>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); setMode(prev => prev === 'remove' ? 'view' : 'remove'); }}
-                    className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold backdrop-blur-md shadow-sm flex items-center gap-1.5 md:gap-2 transition-all ${
-                      mode === 'remove' ? 'bg-red-600 text-white' : 'bg-gray-800/80 text-gray-400 hover:bg-gray-700'
-                    }`}
-                  >
-                    <Trash size={12} className="md:w-[14px] md:h-[14px]" /> Hapus <span className="hidden md:inline">(R)</span>
-                  </button>
-                </div>
-              </div>
-            </>
-          ) : (
-            // State Kosong (Upload)
-            <div className="flex-1 flex flex-col items-center justify-center p-10">
-              <div className="bg-white p-10 rounded-xl border-2 border-dashed border-gray-200 hover:border-blue-400 transition-colors shadow-md shadow-slate-300/40 text-center max-w-lg w-full mx-auto">
-                <div className="p-4 bg-blue-50 text-blue-600 rounded-full mb-4 inline-flex">
-                  <Upload size={32} />
-                </div>
-                <h3 className="text-gray-800 font-bold text-lg mb-2">Upload Citra Mikroskop</h3>
-                <p className="text-gray-500 text-sm mb-6">Dukung multi-upload (JPG, PNG)</p>
-                <label className={`cursor-pointer text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg inline-flex items-center gap-2 ${
-                  isUploading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
-                }`}>
-                  <Upload size={18} /> {isUploading ? 'Mengunggah...' : 'Pilih Gambar'}
-                  <input type="file" multiple className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploading} />
-                </label>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* --- KOLOM KANAN: PANEL KONTROL --- */}
-        <div className="w-full lg:w-[380px] flex flex-col gap-6">
-          
-          {/* 1. INFO PASIEN */}
-          <div className="bg-white p-4 md:p-5 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200">
-            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <Info size={14} /> Data Pasien
-            </h3>
-            <div className="space-y-3">
-              <div><p className="text-xs text-gray-500">Nama</p><p className="font-bold text-gray-800">{patient.nama_lengkap}</p></div>
-              <div><p className="text-xs text-gray-500">ID Pasien</p><p className="font-mono text-xs bg-gray-100 px-2 py-1 rounded w-fit">{patient.id_pasien}</p></div>
-              <div><p className="text-xs text-gray-500">Jenis Kelamin</p><p className="text-sm text-gray-700">{patient.jenis_kelamin}</p></div>
-              <div><p className="text-xs text-gray-500">Spesimen Terunggah</p><p className="text-sm font-semibold text-blue-700">{uploadedSpecimens.length}</p></div>
             </div>
           </div>
+        )}
 
-          {/* 2. THUMBNAIL SELECTOR */}
-          {images.length > 0 && (
-            <div className="bg-white p-4 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Sampel ({images.length})</p>
-              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                {images.map((item, idx) => (
-                  <div 
-                    key={idx}
-                    onClick={() => { setActiveImgIdx(idx); resetView(); setMode('drag'); }}
-                    className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 cursor-pointer flex-shrink-0 transition-all ${
-                      activeImgIdx === idx ? 'border-blue-600 ring-2 ring-blue-100' : 'border-transparent opacity-60 hover:opacity-100'
-                    }`}
-                  >
+        {/* HEADER NAVIGASI */}
+        <div className="flex items-center justify-between mb-4">
+          <button
+            onClick={handleBack}
+            className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors font-medium text-sm md:text-base"
+          >
+            <ArrowLeft size={18} className="md:w-5 md:h-5" /> Kembali ke Daftar
+          </button>
+        </div>
+
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              <Microscope className="text-blue-600" /> Analisis Spesimen Baru
+            </h2>
+            <p className="text-slate-500 text-sm mt-1">
+              Pasien: <span className="font-bold text-slate-700">{patient.nama_lengkap}</span> | ID: <span className="font-mono">{patient.id_pasien}</span> | {patient.jenis_kelamin}
+            </p>
+          </div>
+        </div>
+
+        {/* --- UI STEPPER --- */}
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-4 hidden md:flex items-center justify-between w-full">
+          {steps.map((step, index) => (
+            <React.Fragment key={step.num}>
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-colors ${currentStep > step.num
+                    ? 'bg-green-500 text-white'
+                    : currentStep === step.num
+                      ? 'bg-blue-600 text-white ring-4 ring-blue-100'
+                      : 'bg-slate-100 text-slate-400'
+                  }`}>
+                  {currentStep > step.num ? <CheckCircle size={18} /> : step.num}
+                </div>
+                <span className={`text-sm font-semibold ${currentStep >= step.num ? 'text-slate-800' : 'text-slate-400'}`}>
+                  {step.label}
+                </span>
+              </div>
+              {index < steps.length - 1 && (
+                <div className={`flex-1 h-1 mx-4 rounded-full ${currentStep > step.num ? 'bg-green-500' : 'bg-slate-100'}`}></div>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+
+        {/* Mobile Stepper (Versi Ringkas) */}
+        <div className="md:hidden bg-white p-3 rounded-xl shadow-sm border border-slate-200 mb-4 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
+            {currentStep}
+          </div>
+          <div>
+            <p className="text-xs text-slate-500 font-medium">Langkah {currentStep} dari 3</p>
+            <p className="text-sm font-bold text-slate-800">{steps[currentStep - 1]?.label}</p>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-6 flex-1 pb-10">
+
+          {/* --- ROW 1: DATA PASIEN & SPESIMEN --- */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+            {/* 1. INFO PASIEN */}
+            <div className="bg-white p-4 md:p-5 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <Info size={14} /> Data Pasien
+              </h3>
+              <div className="space-y-4">
+                <div className="flex flex-col gap-y-3">
+                  <div><p className="text-xs text-gray-500 uppercase tracking-tighter">Nama</p><p className="font-bold text-gray-800">{patient.nama_lengkap}</p></div>
+                  <div><p className="text-xs text-gray-500 uppercase tracking-tighter">ID Pasien</p><p className="font-mono text-xs bg-gray-100 px-2 py-1 rounded w-fit">{patient.id_pasien}</p></div>
+                  {patient.nik && (
+                    <div><p className="text-xs text-gray-500 uppercase tracking-tighter">NIK</p><p className="font-mono text-xs bg-gray-100 px-2 py-1 rounded w-fit">{patient.nik}</p></div>
+                  )}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><p className="text-xs text-gray-500 uppercase tracking-tighter">Gender</p><p className="text-sm font-semibold text-gray-700">{patient.jenis_kelamin}</p></div>
+                    <div><p className="text-xs text-gray-500 uppercase tracking-tighter">Tgl Lahir</p><p className="text-sm font-semibold text-gray-700">{patient.tanggal_lahir ? new Date(patient.tanggal_lahir).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</p></div>
+                  </div>
+                  <div><p className="text-xs text-gray-500 uppercase tracking-tighter">No. Telepon</p><p className="text-sm font-semibold text-gray-700">{patient.no_telepon || '-'}</p></div>
+                  <div><p className="text-xs text-gray-500 uppercase tracking-tighter">Alamat</p><p className="text-xs text-gray-600 leading-relaxed">{patient.alamat || '-'}</p></div>
+                </div>
+                <div className="pt-2 border-t border-slate-100">
+                  <p className="text-xs text-gray-500 uppercase tracking-tighter mb-1">Spesimen Terunggah</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-bold text-blue-700">{uploadedSpecimens.length}</span>
+                    <span className="text-xs text-slate-400">Berkas gambar citra</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 1b. DATA SPESIMEN & PERMINTAAN */}
+            <div className="bg-white p-4 md:p-5 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <Microscope size={14} /> Data Spesimen & Permintaan
+              </h3>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 mb-1">ID Spesimen / Accession Number</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={specimenMeta.accession_number}
+                      onChange={(e) => setSpecimenMeta((prev) => ({ ...prev, accession_number: e.target.value }))}
+                      placeholder="Contoh: ACC-2026-001"
+                      className="flex-1 text-xs px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 outline-none"
+                    />
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveImage(idx);
-                      }}
-                      className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/60 hover:bg-red-600 text-white flex items-center justify-center transition-colors border border-white/20 shadow-sm"
-                      title="Hapus sampel"
+                      onClick={generateAccessionNumber}
+                      className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
                     >
-                      <X size={12} strokeWidth={3} />
+                      Generate
                     </button>
-                    <img src={item.previewUrl} className="w-full h-full object-cover" alt="Thumb" />
                   </div>
-                ))}
-                <label className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 text-gray-400 hover:text-blue-500 transition-colors flex-shrink-0">
-                  <Upload size={20} />
-                  <input type="file" multiple className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploading} />
-                </label>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 mb-1">Jenis Spesimen</p>
+                  <input
+                    type="text"
+                    value={specimenMeta.specimen_type}
+                    onChange={(e) => setSpecimenMeta((prev) => ({ ...prev, specimen_type: e.target.value }))}
+                    placeholder="Sputum / Urin / Darah / ..."
+                    className="w-full text-xs px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 mb-1">Diagnosa Klinis Awal</p>
+                  <input
+                    type="text"
+                    value={specimenMeta.clinical_diagnosis}
+                    onChange={(e) => setSpecimenMeta((prev) => ({ ...prev, clinical_diagnosis: e.target.value }))}
+                    placeholder="Contoh: Pneumonia"
+                    className="w-full text-xs px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 mb-1">Catatan Analis</p>
+                  <textarea
+                    rows={3}
+                    value={specimenMeta.analyst_note}
+                    onChange={(e) => setSpecimenMeta((prev) => ({ ...prev, analyst_note: e.target.value }))}
+                    placeholder="Catatan kualitas pewarnaan / observasi"
+                    className="w-full text-xs px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 outline-none resize-none"
+                  />
+                </div>
               </div>
             </div>
-          )}
+          </div>
 
-          {/* 3. PANEL PROSES */}
-          <div className="bg-white p-4 md:p-5 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 flex-1 flex flex-col">
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-              <Microscope size={14} /> Deteksi & Klasifikasi
-            </h3>
+          {/* --- ROW 2: PREVIEW BOX & PANEL KONTROL --- */}
+          <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 flex-1 min-h-0">
 
-            {!images.length ? (
-              <div className="flex-1 flex items-center justify-center text-gray-500 text-sm italic text-center px-4">
-                Silahkan upload gambar sampel terlebih dahulu.
-              </div>
-            ) : status === 'done' ? (
-              // HASIL AKHIR
-              <div className="animate-in fade-in slide-in-from-bottom-4">
-                <div className="bg-green-50 p-4 rounded-lg border border-green-100 text-center mb-4">
-                  <CheckCircle size={32} className="text-green-600 mx-auto mb-2" />
-                  <p className="font-bold text-green-800">Analisis Selesai</p>
-                  <p className="text-xs text-green-600">Hasil siap divalidasi</p>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="bg-blue-50 p-3 rounded-lg text-center">
-                    <span className="block text-[10px] text-blue-500 font-bold">GRAM +</span>
-                    <span className="text-xl font-bold text-blue-700">{positiveCount}</span>
+            {/* --- AREA GAMBAR & EDITOR (PREVIEW BOX) --- */}
+            <div className={`min-h-[50vh] lg:min-h-0 flex-1 flex flex-col rounded-2xl overflow-hidden shadow-xl shadow-slate-400/40 relative group select-none ${images.length ? 'bg-gray-900' : 'bg-white'}`}>
+
+              {images.length > 0 ? (
+                <>
+                  {/* Toolbar Atas (Zoom & Reset) */}
+                  <div className="absolute top-2 md:top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 md:gap-2 bg-gray-800/90 backdrop-blur-md p-1 md:p-1.5 rounded-lg border border-gray-700 shadow-xl w-max max-w-[calc(100%-1rem)] overflow-x-auto scrollbar-hide pointer-events-auto">
+                    <button onClick={(e) => { e.stopPropagation(); handleZoom(-0.2); }} className="p-1 md:p-2 text-white hover:bg-gray-700 rounded active:bg-gray-600" title="Zoom Out"><ZoomOut size={16} className="md:w-[18px] md:h-[18px]" /></button>
+                    <span className="text-[10px] md:text-xs font-mono text-gray-300 w-8 md:w-12 text-center">{Math.round(zoom * 100)}%</span>
+                    <button onClick={(e) => { e.stopPropagation(); handleZoom(0.2); }} className="p-1 md:p-2 text-white hover:bg-gray-700 rounded active:bg-gray-600" title="Zoom In"><ZoomIn size={16} className="md:w-[18px] md:h-[18px]" /></button>
+                    <div className="w-px h-3 md:h-4 bg-gray-600 mx-0.5 md:mx-1"></div>
+                    <button onClick={(e) => { e.stopPropagation(); resetView(); }} className="px-2 py-1 md:px-3 md:py-2 text-white text-[10px] md:text-xs font-semibold hover:bg-gray-700 rounded active:bg-gray-600" title="Reset View">Reset</button>
+                    <div className="w-px h-3 md:h-4 bg-gray-600 mx-0.5 md:mx-1"></div>
+                    <button onClick={(e) => { e.stopPropagation(); setShowFullPreview(true); }} className="p-1 md:p-2 text-white hover:bg-gray-700 rounded active:bg-gray-600" title="Full Preview">
+                      <Maximize2 size={16} className="md:w-[18px] md:h-[18px]" />
+                    </button>
                   </div>
-                  <div className="bg-red-50 p-3 rounded-lg text-center">
-                    <span className="block text-[10px] text-red-500 font-bold">GRAM -</span>
-                    <span className="text-xl font-bold text-red-700">{negativeCount}</span>
+
+                  {/* VIEWPORT UTAMA */}
+                  <div
+                    ref={imgContainerRef}
+                    className={`relative flex-1 overflow-hidden bg-black w-full h-full ${mode !== 'view' ? 'touch-none' : ''} ${mode === 'drag'
+                        ? (isInteracting ? 'cursor-grabbing' : 'cursor-grab')
+                        : mode === 'remove'
+                          ? 'cursor-not-allowed'
+                          : mode === 'manual_crop'
+                            ? 'cursor-crosshair'
+                            : 'cursor-default'
+                      }`}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                    onTouchStart={handleTouchStart}
+                    onTouchMove={handleTouchMove}
+                    onTouchEnd={handleTouchEnd}
+                    onTouchCancel={handleTouchEnd}
+                  >
+                    {/* Navigasi Gambar (Preview Box) */}
+                    {images.length > 1 && (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePrevImg();
+                          }}
+                          className="absolute left-1 md:left-2 top-1/2 -translate-y-1/2 z-30 p-2 md:p-2.5 bg-black/45 border border-white/20 text-white/80 hover:text-white hover:bg-black/65 rounded-full transition-all pointer-events-auto"
+                          title="Gambar Sebelumnya"
+                        >
+                          <ArrowLeft size={18} className="md:w-5 md:h-5" />
+                        </button>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleNextImg();
+                          }}
+                          className="absolute right-1 md:right-2 top-1/2 -translate-y-1/2 z-30 p-2 md:p-2.5 bg-black/45 border border-white/20 text-white/80 hover:text-white hover:bg-black/65 rounded-full transition-all pointer-events-auto"
+                          title="Gambar Berikutnya"
+                        >
+                          <ArrowRight size={18} className="md:w-5 md:h-5" />
+                        </button>
+                      </>
+                    )}
+
+                    {/* TRANSFORM LAYER */}
+                    <div
+                      style={{
+                        transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                        transformOrigin: '0 0',
+                        transition: isInteracting ? 'none' : 'transform 0.1s ease-out'
+                      }}
+                      className="inline-block relative"
+                    >
+                      <img
+                        ref={imageElementRef}
+                        src={images[activeImgIdx]?.previewUrl}
+                        alt="Sample"
+                        className="max-w-none block pointer-events-none"
+                        style={{ maxHeight: '80vh' }}
+                        onDragStart={(e) => e.preventDefault()}
+                        onLoad={() => {
+                          centerImageFor(imgContainerRef, imageElementRef, false);
+                          updateImageMeta(activeImgIdx, imageElementRef.current);
+                        }}
+                      />
+
+                      {/* --- ROI RENDER LAYER --- */}
+                      {currentRois.map((box, idx) => (
+                        <div
+                          key={idx}
+                          onMouseEnter={() => setHoveredRoiIndex(idx)}
+                          onMouseLeave={() => setHoveredRoiIndex(null)}
+                          onClick={(e) => {
+                            if (mode === 'remove') {
+                              e.stopPropagation();
+                              deleteRoi(idx);
+                            }
+                          }}
+                          className={`absolute border-2 ${mode === 'remove'
+                              ? 'cursor-pointer hover:bg-red-500/40 border-red-500'
+                              : hoveredRoiIndex === idx
+                                ? 'border-red-500 bg-red-500/20'
+                                : box.label === 'Auto'
+                                  ? 'border-green-400'
+                                  : 'border-blue-400'
+                            } transition-colors`}
+                          style={{
+                            left: box.x,
+                            top: box.y,
+                            width: box.width ?? box.w,
+                            height: box.height ?? box.h,
+                            pointerEvents: 'auto'
+                          }}
+                        />
+                      ))}
+
+                      {isInteracting && mode === 'manual_crop' && currentBox && (
+                        <div
+                          className="absolute border-2 border-yellow-400 bg-yellow-400/20 z-50"
+                          style={{
+                            left: currentBox.x,
+                            top: currentBox.y,
+                            width: currentBox.w,
+                            height: currentBox.h
+                          }}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Tips Shortcut */}
+                  <div className="hidden lg:block absolute bottom-4 right-4 z-30 bg-black/60 text-white px-3 py-2 rounded-lg text-[10px] backdrop-blur-sm pointer-events-none space-y-1">
+                    <p><span className="font-bold text-yellow-400">B</span> : Box Mode</p>
+                    <p><span className="font-bold text-yellow-400">D</span> : Drag Mode</p>
+                    <p><span className="font-bold text-red-400">R</span> : Remove Mode {mode === 'remove' && '(ON)'}</p>
+                  </div>
+
+                  {/* Mode Indicator */}
+                  <div className="absolute bottom-2 md:bottom-4 left-2 md:left-4 z-30 w-full max-w-[calc(100%-1rem)] overflow-x-auto scrollbar-hide pointer-events-auto">
+                    <div className="flex gap-1.5 md:gap-2 w-max">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMode(prev => prev === 'drag' ? 'view' : 'drag');
+                        }}
+                        className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold backdrop-blur-md shadow-sm flex items-center gap-1.5 md:gap-2 transition-all ${mode === 'drag' ? 'bg-white text-gray-900' : 'bg-gray-800/80 text-gray-400 hover:bg-gray-700'
+                          }`}
+                      >
+                        <Hand size={12} className="md:w-[14px] md:h-[14px]" /> Geser <span className="hidden md:inline">(D)</span>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (mode === 'auto_detect') clearRois();
+                          setMode(prev => prev === 'manual_crop' ? 'view' : 'manual_crop');
+                        }}
+                        className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold backdrop-blur-md shadow-sm flex items-center gap-1.5 md:gap-2 transition-all ${mode === 'manual_crop' ? 'bg-blue-600 text-white' : 'bg-gray-800/80 text-gray-400 hover:bg-gray-700'
+                          }`}
+                      >
+                        <Crop size={12} className="md:w-[14px] md:h-[14px]" /> Crop ROI <span className="hidden md:inline">(B)</span>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setMode(prev => prev === 'remove' ? 'view' : 'remove'); }}
+                        className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold backdrop-blur-md shadow-sm flex items-center gap-1.5 md:gap-2 transition-all ${mode === 'remove' ? 'bg-red-600 text-white' : 'bg-gray-800/80 text-gray-400 hover:bg-gray-700'
+                          }`}
+                      >
+                        <Trash size={12} className="md:w-[14px] md:h-[14px]" /> Hapus <span className="hidden md:inline">(R)</span>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center p-10">
+                  <div className="bg-white p-10 rounded-xl border-2 border-dashed border-gray-200 hover:border-blue-400 transition-colors shadow-md shadow-slate-300/40 text-center max-w-lg w-full mx-auto">
+                    <div className="p-4 bg-blue-50 text-blue-600 rounded-full mb-4 inline-flex">
+                      <Upload size={32} />
+                    </div>
+                    <h3 className="text-gray-800 font-bold text-lg mb-2">Upload Citra Mikroskop</h3>
+                    <p className="text-gray-500 text-sm mb-6">Dukung multi-upload (JPG, PNG)</p>
+                    <label className={`cursor-pointer text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg inline-flex items-center gap-2 ${isUploading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                      }`}>
+                      <Upload size={18} /> {isUploading ? 'Mengunggah...' : 'Pilih Gambar'}
+                      <input type="file" multiple className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploading} />
+                    </label>
                   </div>
                 </div>
-                <p className="text-xs text-slate-500 text-center mb-4">Total hasil: {totalDoneCount}</p>
-
-                <div className="space-y-2">
-                  <button
-                    onClick={() => {
-                      localStorage.removeItem(draftStorageKey);
-                      navigate('/analyst/history');
-                    }}
-                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <ArrowLeft size={18} /> Selesai & Kembali ke Riwayat
-                  </button>
-                  <button onClick={handleReset} className="w-full py-2.5 border border-gray-200 text-slate-600 rounded-lg font-medium text-sm hover:bg-slate-50 transition-colors">
-                    <RefreshCw size={16} className="inline mr-1" /> Analisis Ulang (Reset)
-                  </button>
-                </div>
-              </div>
-            ) : (
-              // KONTROL PROSES
-              <div className="space-y-4">
-                
-                {/* Grup Tombol Tools */}
-                <div className="grid grid-cols-2 gap-3">
-                  <button 
-                    onClick={handleAutoDetect}
-                    disabled={status === 'auto_detecting' || status === 'analyzing'}
-                    className={`p-3 rounded-xl border-2 text-left transition-all ${
-                      mode === 'auto_detect' ? 'border-green-600 bg-green-50' : 'border-slate-200 hover:border-green-400'
-                    } ${(status === 'auto_detecting' || status === 'analyzing') ? 'opacity-60 cursor-not-allowed' : ''}`}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <Scan size={18} className="text-green-600" />
-                      <span className="text-xs font-bold text-slate-700">Auto Crop</span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 leading-tight">AI mendeteksi area otomatis</p>
-                  </button>
-
-                  <button 
-                    onClick={clearRois}
-                    disabled={currentRois.length === 0}
-                    className="p-3 rounded-xl border-2 border-red-100 hover:border-red-400 hover:bg-red-50 text-left transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <Trash size={18} className="text-red-500 group-hover:scale-110 transition-transform" />
-                      <span className="text-xs font-bold text-red-700">Reset Seleksi</span>
-                    </div>
-                    <p className="text-[10px] text-red-400 leading-tight">Hapus seluruh seleksi saat ini</p>
-                  </button>
-                </div>
-
-                {/* Tombol Eksekusi */}
-                <button 
-                  onClick={handleStartClassification}
-                  disabled={!canStartClassification || status === 'analyzing' || status === 'auto_detecting'}
-                  className={`w-full py-3.5 rounded-xl font-bold text-sm shadow-md flex items-center justify-center gap-2 transition-all ${
-                    !canStartClassification 
-                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
-                      : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
-                  }`}
-                >
-                  {status === 'analyzing' || status === 'auto_detecting' ? (
-                    <span className="flex items-center gap-2 animate-pulse">
-                      <Activity size={16} className="animate-spin"/> {status === 'auto_detecting' ? 'Memproses YOLO...' : 'Memproses CNN...'}
-                    </span>
-                  ) : (
-                    <>
-                      <Play size={16} fill="currentColor" /> 
-                      Mulai Klasifikasi {totalRois > 0 ? `(${totalRois} Area / ${images.length} Sampel)` : ''}
-                    </>
-                  )}
-                </button>
-                {!canStartClassification && images.length > 0 && (
-                  <p className="text-xs text-amber-600 text-center">
-                    Semua sampel harus memiliki minimal 1 bounding box sebelum klasifikasi batch.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-        </div>
-      </div>
-    </div>
-
-    {/* --- MODAL FULL PREVIEW (INTERACTIVE) --- */}
-    {showFullPreview && images.length > 0 && createPortal(
-      <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col animate-in fade-in duration-200">
-        {/* Header Modal */}
-        <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-50 pointer-events-none">
-          <div className="bg-black/50 backdrop-blur-md px-4 py-2 rounded-full pointer-events-auto">
-            <span className="text-white font-medium text-sm">
-              Editor Mode: {activeImgIdx + 1} / {images.length}
-            </span>
-          </div>
-          <button 
-            onClick={() => { setShowFullPreview(false); resetView(); }}
-            className="p-2 bg-white/10 hover:bg-red-500/80 text-white rounded-full transition-colors pointer-events-auto"
-          >
-            <X size={24} />
-          </button>
-        </div>
-
-        {/* TOOLBAR INTERNAL MODAL */}
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex gap-2 pointer-events-auto">
-          {/* Zoom Controls */}
-          <div className="flex items-center gap-1 bg-gray-800/90 backdrop-blur-md p-1.5 rounded-lg border border-gray-700">
-            <button onClick={(e) => { e.stopPropagation(); handleZoom(-0.2); }} className="p-2 text-white hover:bg-gray-700 rounded active:bg-gray-600"><ZoomOut size={18}/></button>
-            <span className="text-xs font-mono text-gray-300 w-12 text-center">{Math.round(zoom * 100)}%</span>
-            <button onClick={(e) => { e.stopPropagation(); handleZoom(0.2); }} className="p-2 text-white hover:bg-gray-700 rounded active:bg-gray-600"><ZoomIn size={18}/></button>
-          </div>
-          
-          {/* Mode Controls */}
-          <div className="flex items-center gap-1 bg-gray-800/90 backdrop-blur-md p-1.5 rounded-lg border border-gray-700">
-            <button 
-              onClick={(e) => { e.stopPropagation(); setMode('drag'); }}
-              className={`p-2 rounded ${mode === 'drag' ? 'bg-white text-black' : 'text-white hover:bg-gray-700'}`} 
-              title="Drag (D)"
-            >
-              <Hand size={18}/>
-            </button>
-            <button 
-              onClick={(e) => { e.stopPropagation(); setMode('manual_crop'); }}
-              className={`p-2 rounded ${mode === 'manual_crop' ? 'bg-blue-600 text-white' : 'text-white hover:bg-gray-700'}`} 
-              title="Crop (B)"
-            >
-              <Crop size={18}/>
-            </button>
-            <button 
-              onClick={(e) => { e.stopPropagation(); setMode(prev => prev === 'remove' ? 'view' : 'remove'); }}
-              className={`p-2 rounded ${mode === 'remove' ? 'bg-red-600 text-white' : 'text-white hover:bg-gray-700'}`} 
-              title="Remove (R)"
-            >
-              <Trash size={18}/>
-            </button>
-          </div>
-        </div>
-
-        {/* CANVAS AREA MODAL */}
-        <div className="flex-1 relative overflow-hidden flex">
-          
-          {/* Navigasi Kiri */}
-          <button 
-            onClick={(e) => { e.stopPropagation(); handlePrevImg(); }}
-            className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 z-50 p-2 md:p-3 bg-black/45 border border-white/20 text-white/80 hover:text-white hover:bg-black/65 rounded-full transition-all pointer-events-auto"
-          >
-            <ArrowLeft size={24} className="md:w-[32px] md:h-[32px]" />
-          </button>
-
-          {/* Container Interaktif (Sama seperti Main View) */}
-            <div 
-              ref={modalImgRef}
-              className="relative w-full h-full overflow-hidden bg-black"
-            style={{ 
-              cursor: mode === 'remove' ? 'not-allowed' : mode === 'drag' ? (isInteracting ? 'grabbing' : 'grab') : mode === 'manual_crop' ? 'crosshair' : 'default' 
-            }}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-          >
-            {/* Transform Layer */}
-            <div 
-              style={{ 
-                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                transformOrigin: '0 0',
-                transition: isInteracting ? 'none' : 'transform 0.1s ease-out'
-              }}
-              className="relative inline-block"
-            >
-              <img 
-                ref={modalImageRef}
-                src={images[activeImgIdx]?.previewUrl} 
-                alt="Full Preview" 
-                className="max-w-none pointer-events-none"
-                style={{ maxHeight: '80vh' }}
-                onDragStart={(e) => e.preventDefault()}
-                onLoad={() => {
-                  centerImageFor(modalImgRef, modalImageRef, true);
-                }}
-              />
-
-              {/* Render ROIs di Modal */}
-              {currentRois.map((box, idx) => (
-                <div 
-                  key={idx}
-                  onMouseEnter={() => setHoveredRoiIndex(idx)}
-                  onMouseLeave={() => setHoveredRoiIndex(null)}
-                  onClick={(e) => {
-                    if (mode === 'remove') {
-                      e.stopPropagation();
-                      deleteRoi(idx);
-                    }
-                  }}
-                  className={`absolute border-2 ${
-                    mode === 'remove' 
-                      ? 'cursor-pointer hover:bg-red-500/40 border-red-500'
-                      : hoveredRoiIndex === idx
-                        ? 'border-red-500 bg-red-500/20'
-                        : box.label === 'Auto'
-                          ? 'border-green-400'
-                          : 'border-blue-400'
-                  }`}
-                  style={{
-                    left: box.x,
-                    top: box.y,
-                    width: box.width ?? box.w,
-                    height: box.height ?? box.h,
-                    pointerEvents: 'auto'
-                  }}
-                />
-              ))}
-
-              {/* Drawing Box */}
-              {isInteracting && mode === 'manual_crop' && currentBox && (
-                <div 
-                  className="absolute border-2 border-yellow-400 bg-yellow-400/20 z-50"
-                  style={{
-                    left: currentBox.x, top: currentBox.y, width: currentBox.w, height: currentBox.h
-                  }}
-                />
               )}
             </div>
-          </div>
 
-          {/* Navigasi Kanan */}
-          <button 
-            onClick={(e) => { e.stopPropagation(); handleNextImg(); }}
-            className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 z-50 p-2 md:p-3 bg-black/45 border border-white/20 text-white/80 hover:text-white hover:bg-black/65 rounded-full transition-all pointer-events-auto"
-          >
-            <ArrowRight size={24} className="md:w-[32px] md:h-[32px]" />
-          </button>
+            {/* --- PANEL KONTROL (KANAN) --- */}
+            <div className="w-full lg:w-[380px] flex flex-col gap-6">
 
-          {/* Shortcuts Hint di Modal - Adaptive Text */}
-          <div className="absolute bottom-16 md:bottom-8 left-1/2 -translate-x-1/2 text-white/50 text-[10px] bg-black/40 px-3 py-1 rounded-full pointer-events-none whitespace-nowrap">
-            <span className="md:hidden">Pinch: Zoom • Sentuh & Geser: Navigasi</span>
-            <span className="hidden md:inline">Scroll: Zoom • Drag: Geser • Panah: Navigasi</span>
-          </div>
+              {/* 2. THUMBNAIL SELECTOR */}
+              {images.length > 0 && (
+                <div className="bg-white p-4 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Sampel ({images.length})</p>
+                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                    {images.map((item, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => { setActiveImgIdx(idx); resetView(); setMode('drag'); }}
+                        className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 cursor-pointer flex-shrink-0 transition-all ${activeImgIdx === idx ? 'border-blue-600 ring-2 ring-blue-100' : 'border-transparent opacity-60 hover:opacity-100'
+                          }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveImage(idx);
+                          }}
+                          className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/60 hover:bg-red-600 text-white flex items-center justify-center transition-colors border border-white/20 shadow-sm"
+                          title="Hapus sampel"
+                        >
+                          <X size={12} strokeWidth={3} />
+                        </button>
+                        <img src={item.previewUrl} className="w-full h-full object-cover" alt="Thumb" />
+                      </div>
+                    ))}
+                    <label className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 text-gray-400 hover:text-blue-500 transition-colors flex-shrink-0">
+                      <Upload size={20} />
+                      <input type="file" multiple className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploading} />
+                    </label>
+                  </div>
+                </div>
+              )}
 
-          {/* Keyboard Shortcuts Hint di Modal (Pojok Kanan Bawah) */}
-          <div className="hidden lg:block absolute bottom-8 right-8 z-50 bg-black/60 text-white px-4 py-3 rounded-xl text-[10px] backdrop-blur-md pointer-events-none space-y-1.5 border border-white/10">
-            <p className="flex items-center justify-between gap-4">
-              <span className="font-bold text-blue-400">D</span> 
-              <span className="opacity-80">Geser (Drag)</span>
-            </p>
-            <p className="flex items-center justify-between gap-4">
-              <span className="font-bold text-yellow-400">B</span> 
-              <span className="opacity-80">Potong (Box)</span>
-            </p>
-            <p className="flex items-center justify-between gap-4">
-              <span className="font-bold text-red-400">R</span> 
-              <span className="opacity-80">Hapus (Remove)</span>
-            </p>
+              {/* 3. PANEL PROSES (DETEKSI & KLASIFIKASI) */}
+              <div className="bg-white p-4 md:p-5 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 flex-1 flex flex-col">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <Microscope size={14} /> Deteksi & Klasifikasi
+                </h3>
+
+                {!images.length ? (
+                  <div className="flex-1 flex items-center justify-center text-gray-500 text-sm italic text-center px-4">
+                    Silahkan upload gambar sampel terlebih dahulu.
+                  </div>
+                ) : status === 'done' ? (
+                  <div className="animate-in fade-in slide-in-from-bottom-4">
+                    <div className="bg-green-50 p-4 rounded-lg border border-green-100 text-center mb-4">
+                      <CheckCircle size={32} className="text-green-600 mx-auto mb-2" />
+                      <p className="font-bold text-green-800">Analisis Selesai</p>
+                      <p className="text-xs text-green-600">Hasil siap divalidasi</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div className="bg-blue-50 p-3 rounded-lg text-center">
+                        <span className="block text-[10px] text-blue-500 font-bold">GRAM POSITIF</span>
+                        <span className="text-xl font-bold text-blue-700">{positiveCount}</span>
+                      </div>
+                      <div className="bg-red-50 p-3 rounded-lg text-center">
+                        <span className="block text-[10px] text-red-500 font-bold">GRAM NEGATIF</span>
+                        <span className="text-xl font-bold text-red-700">{negativeCount}</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 text-center mb-4">Total hasil: {totalDoneCount}</p>
+
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => {
+                          localStorage.removeItem(draftStorageKey);
+                          navigate('/analyst/history');
+                        }}
+                        className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <ArrowLeft size={18} /> Selesai & Kembali ke Riwayat
+                      </button>
+                      <button onClick={handleReset} className="w-full py-2.5 border border-gray-200 text-slate-600 rounded-lg font-medium text-sm hover:bg-slate-50 transition-colors">
+                        <RefreshCw size={16} className="inline mr-1" /> Analisis Ulang (Reset)
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={handleAutoDetect}
+                        disabled={status === 'auto_detecting' || status === 'analyzing'}
+                        className={`p-3 rounded-xl border-2 text-left transition-all ${mode === 'auto_detect' ? 'border-green-600 bg-green-50' : 'border-slate-200 hover:border-green-400'
+                          } ${(status === 'auto_detecting' || status === 'analyzing') ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <Scan size={18} className="text-green-600" />
+                          <span className="text-xs font-bold text-slate-700">Auto Crop</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 leading-tight">AI mendeteksi area otomatis</p>
+                      </button>
+
+                      <button
+                        onClick={clearRois}
+                        disabled={currentRois.length === 0}
+                        className="p-3 rounded-xl border-2 border-red-100 hover:border-red-400 hover:bg-red-50 text-left transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <Trash size={18} className="text-red-500 group-hover:scale-110 transition-transform" />
+                          <span className="text-xs font-bold text-red-700">Reset Seleksi</span>
+                        </div>
+                        <p className="text-[10px] text-red-400 leading-tight">Hapus seluruh seleksi saat ini</p>
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={handleStartClassification}
+                      disabled={!canStartClassification || status === 'analyzing' || status === 'auto_detecting'}
+                      className={`w-full py-3.5 rounded-xl font-bold text-sm shadow-md flex items-center justify-center gap-2 transition-all ${!canStartClassification
+                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                          : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
+                        }`}
+                    >
+                      {status === 'analyzing' || status === 'auto_detecting' ? (
+                        <span className="flex items-center gap-2 animate-pulse">
+                          <Activity size={16} className="animate-spin" /> {status === 'auto_detecting' ? 'Memproses YOLO...' : 'Memproses CNN...'}
+                        </span>
+                      ) : (
+                        <>
+                          <Play size={16} fill="currentColor" />
+                          Mulai Klasifikasi {totalRois > 0 ? `(${totalRois} Area / ${images.length} Sampel)` : ''}
+                        </>
+                      )}
+                    </button>
+                    {!canStartClassification && images.length > 0 && (
+                      <p className="text-xs text-amber-600 text-center">
+                        Semua sampel harus memiliki minimal 1 bounding box sebelum klasifikasi batch.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+            </div>
           </div>
         </div>
-      </div>,
-      document.body
-    )}
+      </div>
+
+      {/* --- MODAL FULL PREVIEW (INTERACTIVE) --- */}
+      {showFullPreview && images.length > 0 && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col animate-in fade-in duration-200">
+          {/* Header Modal */}
+          <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-50 pointer-events-none">
+            <div className="bg-black/50 backdrop-blur-md px-4 py-2 rounded-full pointer-events-auto">
+              <span className="text-white font-medium text-sm">
+                Editor Mode: {activeImgIdx + 1} / {images.length}
+              </span>
+            </div>
+            <button
+              onClick={() => { setShowFullPreview(false); resetView(); }}
+              className="p-2 bg-white/10 hover:bg-red-500/80 text-white rounded-full transition-colors pointer-events-auto"
+            >
+              <X size={24} />
+            </button>
+          </div>
+
+          {/* TOOLBAR INTERNAL MODAL */}
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex gap-2 pointer-events-auto">
+            {/* Zoom Controls */}
+            <div className="flex items-center gap-1 bg-gray-800/90 backdrop-blur-md p-1.5 rounded-lg border border-gray-700">
+              <button onClick={(e) => { e.stopPropagation(); handleZoom(-0.2); }} className="p-2 text-white hover:bg-gray-700 rounded active:bg-gray-600"><ZoomOut size={18} /></button>
+              <span className="text-xs font-mono text-gray-300 w-12 text-center">{Math.round(zoom * 100)}%</span>
+              <button onClick={(e) => { e.stopPropagation(); handleZoom(0.2); }} className="p-2 text-white hover:bg-gray-700 rounded active:bg-gray-600"><ZoomIn size={18} /></button>
+            </div>
+
+            {/* Mode Controls */}
+            <div className="flex items-center gap-1 bg-gray-800/90 backdrop-blur-md p-1.5 rounded-lg border border-gray-700">
+              <button
+                onClick={(e) => { e.stopPropagation(); setMode('drag'); }}
+                className={`p-2 rounded ${mode === 'drag' ? 'bg-white text-black' : 'text-white hover:bg-gray-700'}`}
+                title="Drag (D)"
+              >
+                <Hand size={18} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setMode('manual_crop'); }}
+                className={`p-2 rounded ${mode === 'manual_crop' ? 'bg-blue-600 text-white' : 'text-white hover:bg-gray-700'}`}
+                title="Crop (B)"
+              >
+                <Crop size={18} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setMode(prev => prev === 'remove' ? 'view' : 'remove'); }}
+                className={`p-2 rounded ${mode === 'remove' ? 'bg-red-600 text-white' : 'text-white hover:bg-gray-700'}`}
+                title="Remove (R)"
+              >
+                <Trash size={18} />
+              </button>
+            </div>
+          </div>
+
+          {/* CANVAS AREA MODAL */}
+          <div className="flex-1 relative overflow-hidden flex">
+
+            {/* Navigasi Kiri */}
+            <button
+              onClick={(e) => { e.stopPropagation(); handlePrevImg(); }}
+              className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 z-50 p-2 md:p-3 bg-black/45 border border-white/20 text-white/80 hover:text-white hover:bg-black/65 rounded-full transition-all pointer-events-auto"
+            >
+              <ArrowLeft size={24} className="md:w-[32px] md:h-[32px]" />
+            </button>
+
+            {/* Container Interaktif (Sama seperti Main View) */}
+            <div
+              ref={modalImgRef}
+              className="relative w-full h-full overflow-hidden bg-black"
+              style={{
+                cursor: mode === 'remove' ? 'not-allowed' : mode === 'drag' ? (isInteracting ? 'grabbing' : 'grab') : mode === 'manual_crop' ? 'crosshair' : 'default'
+              }}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+            >
+              {/* Transform Layer */}
+              <div
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transformOrigin: '0 0',
+                  transition: isInteracting ? 'none' : 'transform 0.1s ease-out'
+                }}
+                className="relative inline-block"
+              >
+                <img
+                  ref={modalImageRef}
+                  src={images[activeImgIdx]?.previewUrl}
+                  alt="Full Preview"
+                  className="max-w-none pointer-events-none"
+                  style={{ maxHeight: '80vh' }}
+                  onDragStart={(e) => e.preventDefault()}
+                  onLoad={() => {
+                    centerImageFor(modalImgRef, modalImageRef, true);
+                  }}
+                />
+
+                {/* Render ROIs di Modal */}
+                {currentRois.map((box, idx) => (
+                  <div
+                    key={idx}
+                    onMouseEnter={() => setHoveredRoiIndex(idx)}
+                    onMouseLeave={() => setHoveredRoiIndex(null)}
+                    onClick={(e) => {
+                      if (mode === 'remove') {
+                        e.stopPropagation();
+                        deleteRoi(idx);
+                      }
+                    }}
+                    className={`absolute border-2 ${mode === 'remove'
+                        ? 'cursor-pointer hover:bg-red-500/40 border-red-500'
+                        : hoveredRoiIndex === idx
+                          ? 'border-red-500 bg-red-500/20'
+                          : box.label === 'Auto'
+                            ? 'border-green-400'
+                            : 'border-blue-400'
+                      }`}
+                    style={{
+                      left: box.x,
+                      top: box.y,
+                      width: box.width ?? box.w,
+                      height: box.height ?? box.h,
+                      pointerEvents: 'auto'
+                    }}
+                  />
+                ))}
+
+                {/* Drawing Box */}
+                {isInteracting && mode === 'manual_crop' && currentBox && (
+                  <div
+                    className="absolute border-2 border-yellow-400 bg-yellow-400/20 z-50"
+                    style={{
+                      left: currentBox.x, top: currentBox.y, width: currentBox.w, height: currentBox.h
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Navigasi Kanan */}
+            <button
+              onClick={(e) => { e.stopPropagation(); handleNextImg(); }}
+              className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 z-50 p-2 md:p-3 bg-black/45 border border-white/20 text-white/80 hover:text-white hover:bg-black/65 rounded-full transition-all pointer-events-auto"
+            >
+              <ArrowRight size={24} className="md:w-[32px] md:h-[32px]" />
+            </button>
+
+            {/* Shortcuts Hint di Modal - Adaptive Text */}
+            <div className="absolute bottom-16 md:bottom-8 left-1/2 -translate-x-1/2 text-white/50 text-[10px] bg-black/40 px-3 py-1 rounded-full pointer-events-none whitespace-nowrap">
+              <span className="md:hidden">Pinch: Zoom • Sentuh & Geser: Navigasi</span>
+              <span className="hidden md:inline">Scroll: Zoom • Drag: Geser • Panah: Navigasi</span>
+            </div>
+
+            {/* Keyboard Shortcuts Hint di Modal (Pojok Kanan Bawah) */}
+            <div className="hidden lg:block absolute bottom-8 right-8 z-50 bg-black/60 text-white px-4 py-3 rounded-xl text-[10px] backdrop-blur-md pointer-events-none space-y-1.5 border border-white/10">
+              <p className="flex items-center justify-between gap-4">
+                <span className="font-bold text-blue-400">D</span>
+                <span className="opacity-80">Geser (Drag)</span>
+              </p>
+              <p className="flex items-center justify-between gap-4">
+                <span className="font-bold text-yellow-400">B</span>
+                <span className="opacity-80">Potong (Box)</span>
+              </p>
+              <p className="flex items-center justify-between gap-4">
+                <span className="font-bold text-red-400">R</span>
+                <span className="opacity-80">Hapus (Remove)</span>
+              </p>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
     </>
   );

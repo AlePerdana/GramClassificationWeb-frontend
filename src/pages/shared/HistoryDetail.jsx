@@ -152,12 +152,30 @@ const HistoryDetail = () => {
         name: patient?.nama || patient?.name || detailData?.patient_name || '-',
         age: patient?.umur || patient?.age || '-',
         gender: patient?.jenis_kelamin || patient?.gender || '-',
-        rm: patient?.id_pasien || patient?.patient_id || '-'
+        rm: patient?.id_pasien || patient?.patient_id || '-',
+        nik: patient?.nik || '-',
+        address: patient?.alamat || '-',
+        phone: patient?.no_telepon || '-',
+        birthDate: patient?.tanggal_lahir || '-',
+        registeredAt: patient?.registration_date || '-'
       },
       clinical: {
         date: detailData?.tanggal || detailData?.created_at || '-',
         analyst: detailData?.analyst_name || detailData?.analyst || '-',
-        doctor: detailData?.doctor_name || detailData?.dokter || '-'
+        doctor: detailData?.validator || detailData?.doctor_name || detailData?.dokter || '-',
+        accessionNumber: detailData?.accession_number || detailData?.specimen_code || '-',
+        specimenType: detailData?.specimen_type || '-',
+        doctorSender: detailData?.doctor_sender || '-',
+        clinicalDiagnosis: detailData?.clinical_diagnosis || '-',
+        collectedAt: detailData?.collected_at || '-',
+        receivedAt: detailData?.received_at || '-',
+        microscopeType: detailData?.microscope_type || '-',
+        magnification: detailData?.magnification || '-',
+        imageResolution: detailData?.image_resolution || '-',
+        analystNote: detailData?.analyst_note || '-',
+        validationStatus: detailData?.validation_status || '-',
+        validatedAt: detailData?.validated_at || '-',
+        validator: detailData?.validator || '-'
       },
       doctorNote:
         detailData?.doctor_note ||
@@ -259,7 +277,12 @@ const HistoryDetail = () => {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div><p className="text-slate-500 text-xs">Nama Lengkap</p><p className="font-bold text-slate-800">{data.patient.name}</p></div>
             <div><p className="text-slate-500 text-xs">No. Rekam Medis</p><p className="font-bold text-slate-800">{data.patient.rm}</p></div>
-            <div><p className="text-slate-500 text-xs">Umur / Gender</p><p className="font-semibold text-slate-700">{data.patient.age} Thn / {data.patient.gender}</p></div>
+            <div><p className="text-slate-500 text-xs">NIK</p><p className="font-semibold text-slate-700">{data.patient.nik}</p></div>
+            <div><p className="text-slate-500 text-xs">Umur / Gender</p><p className="font-semibold text-slate-700">{data.patient.age} / {data.patient.gender}</p></div>
+            <div><p className="text-slate-500 text-xs">Tgl Lahir</p><p className="font-semibold text-slate-700">{data.patient.birthDate}</p></div>
+            <div><p className="text-slate-500 text-xs">No. Telepon</p><p className="font-semibold text-slate-700">{data.patient.phone}</p></div>
+            <div className="col-span-2"><p className="text-slate-500 text-xs">Alamat</p><p className="font-semibold text-slate-700">{data.patient.address}</p></div>
+            <div className="col-span-2"><p className="text-slate-500 text-xs">Terdaftar Pada</p><p className="font-semibold text-slate-700">{data.patient.registeredAt}</p></div>
           </div>
         </div>
         <div className="hidden md:block w-px bg-slate-200"></div>
@@ -268,6 +291,11 @@ const HistoryDetail = () => {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div><p className="text-slate-500 text-xs">Tanggal Analisis</p><p className="font-semibold text-slate-700">{data.clinical.date}</p></div>
             <div><p className="text-slate-500 text-xs">Analis / Dokter</p><p className="font-semibold text-slate-700">{data.clinical.analyst} / {data.clinical.doctor}</p></div>
+            <div><p className="text-slate-500 text-xs">ID Spesimen</p><p className="font-semibold text-slate-700">{data.clinical.accessionNumber}</p></div>
+            <div><p className="text-slate-500 text-xs">Jenis Spesimen</p><p className="font-semibold text-slate-700">{data.clinical.specimenType}</p></div>
+            <div><p className="text-slate-500 text-xs">Diagnosa Klinis Awal</p><p className="font-semibold text-slate-700">{data.clinical.clinicalDiagnosis}</p></div>
+            <div><p className="text-slate-500 text-xs">Resolusi Citra</p><p className="font-semibold text-slate-700">{data.clinical.imageResolution}</p></div>
+            <div className="col-span-2"><p className="text-slate-500 text-xs">Catatan Analis</p><p className="font-semibold text-slate-700 leading-relaxed">{data.clinical.analystNote}</p></div>
           </div>
         </div>
       </div>

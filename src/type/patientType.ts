@@ -6,6 +6,7 @@ export interface responsePatient {
 }
 
 export interface patient {
+    nik?: string;
     nama_lengkap: string;
     jenis_kelamin: string;
     tanggal_lahir: string;

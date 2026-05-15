@@ -8,7 +8,8 @@ import {
   Edit,
   Trash2,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 
 const getDefaultWaktuMasuk = () => {
@@ -30,15 +31,30 @@ const normalizeWaktuMasuk = (value) => {
   return raw;
 };
 
+const generateNoRekamMedis = () => {
+  const now = new Date();
+  const pad = (num) => String(num).padStart(2, '0');
+  const y = now.getFullYear();
+  const m = pad(now.getMonth() + 1);
+  const d = pad(now.getDate());
+  const rand = Math.floor(1000 + Math.random() * 9000);
+  return `RM-${y}${m}${d}-${rand}`;
+};
+
 const PatientManagement = () => {
   // --- STATE API ---
   const [patients, setPatients] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importNik, setImportNik] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [formData, setFormData] = useState({
+    id_pasien: '',
+    nik: '',
     nama_lengkap: '',
     jenis_kelamin: 'Laki-Laki',
     tanggal_lahir: '',
@@ -69,7 +85,9 @@ const PatientManagement = () => {
   const filteredPatients = patients.filter(p => {
     const name = (p.nama_lengkap || '').toLowerCase();
     const code = (p.id_pasien || '').toLowerCase();
-    return name.includes(searchTerm.toLowerCase()) || code.includes(searchTerm.toLowerCase());
+    const nik = (p.nik || '').toLowerCase();
+    const term = searchTerm.toLowerCase();
+    return name.includes(term) || code.includes(term) || nik.includes(term);
   });
 
   useEffect(() => {
@@ -102,6 +120,8 @@ const PatientManagement = () => {
     setIsEditing(false);
     setEditId(null);
     setFormData({
+      id_pasien: '',
+      nik: '',
       nama_lengkap: '',
       jenis_kelamin: 'Laki-Laki',
       tanggal_lahir: '',
@@ -114,6 +134,8 @@ const PatientManagement = () => {
   // --- 3. MENGEDIT DATA PASIEN (Persiapan Modal) ---
   const handleEditClick = (patient) => {
     setFormData({
+      id_pasien: patient.id_pasien || '',
+      nik: patient.nik || '',
       nama_lengkap: patient.nama_lengkap || '',
       jenis_kelamin: patient.jenis_kelamin || 'Laki-Laki',
       tanggal_lahir: patient.tanggal_lahir || '',
@@ -125,11 +147,35 @@ const PatientManagement = () => {
     setShowModal(true);
   };
 
+  const handleImportSatusehat = async (e) => {
+    e.preventDefault();
+    if (!importNik || importNik.length !== 16 || !/^\d+$/.test(importNik)) {
+      showToast('error', 'NIK harus terdiri dari 16 digit angka.');
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      await patientService.importSatusehat(importNik);
+      showToast('success', 'Data pasien berhasil diimpor dari SATUSEHAT!');
+      setShowImportModal(false);
+      setImportNik('');
+      fetchPatients();
+    } catch (error) {
+      console.error('Error importing patient:', error);
+      showToast('error', `Gagal impor pasien: ${error?.message || 'Terjadi kesalahan jaringan.'}`);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   // Handler Submit Form (Gabungan Add & Edit)
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     const payload = {
+      id_pasien: formData.id_pasien,
+      nik: formData.nik,
       nama_lengkap: formData.nama_lengkap,
       jenis_kelamin: formData.jenis_kelamin,
       tanggal_lahir: formData.tanggal_lahir,
@@ -150,6 +196,8 @@ const PatientManagement = () => {
         setIsEditing(false);
         setEditId(null);
         setFormData({
+          id_pasien: '',
+          nik: '',
           nama_lengkap: '',
           jenis_kelamin: 'Laki-Laki',
           tanggal_lahir: '',
@@ -169,6 +217,8 @@ const PatientManagement = () => {
       showToast('success', 'Pasien berhasil ditambahkan!');
       setShowModal(false);
       setFormData({
+        id_pasien: '',
+        nik: '',
         nama_lengkap: '',
         jenis_kelamin: 'Laki-Laki',
         tanggal_lahir: '',
@@ -206,6 +256,8 @@ const PatientManagement = () => {
     setIsEditing(false);
     setEditId(null);
     setFormData({
+      id_pasien: '',
+      nik: '',
       nama_lengkap: '',
       jenis_kelamin: 'Laki-Laki',
       tanggal_lahir: '',
@@ -244,12 +296,23 @@ const PatientManagement = () => {
         title="Manajemen Pasien"
         subtitle="Kelola data pasien dan registrasi sampel baru"
         actions={(
-          <button
-            onClick={handleAddClick}
-            className="bg-primary hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-bold shadow-md flex items-center gap-2 transition-all active:scale-95"
-          >
-            <Plus size={20} /> Tambah Pasien Baru
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setImportNik('');
+                setShowImportModal(true);
+              }}
+              className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded-lg font-bold shadow-md flex items-center gap-2 transition-all active:scale-95"
+            >
+              <RefreshCw size={20} className={isImporting ? 'animate-spin' : ''} /> Impor SATUSEHAT
+            </button>
+            <button
+              onClick={handleAddClick}
+              className="bg-primary hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-bold shadow-md flex items-center gap-2 transition-all active:scale-95"
+            >
+              <Plus size={20} /> Tambah Pasien Baru
+            </button>
+          </div>
         )}
       />
 
@@ -262,7 +325,7 @@ const PatientManagement = () => {
             className="flex-1 max-w-md"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari nama pasien atau kode sampel..."
+            placeholder="Cari nama pasien atau No. RM/NIK..."
           />
         </div>
 
@@ -287,7 +350,8 @@ const PatientManagement = () => {
                   <tr key={patient.id_pasien || patient.id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-4 text-left pl-6 whitespace-nowrap">
                       <div className="font-bold text-slate-800">{patient.nama_lengkap}</div>
-                      <div className="text-xs font-mono text-slate-500 mt-0.5">{patient.id_pasien}</div>
+                      <div className="text-xs font-mono text-slate-500 mt-0.5">RM: {patient.id_pasien || '-'}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">NIK: {patient.nik || '-'}</div>
                     </td>
                     <td className="p-4 text-center">{patient.jenis_kelamin}</td>
                     <td className="p-4 text-center">{patient.tanggal_lahir}</td>
@@ -371,6 +435,39 @@ const PatientManagement = () => {
       >
         <form id="patient-form" onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 gap-4">
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-1">No. Rekam Medis (RM)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  required
+                  className="flex-1 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                  placeholder="Masukkan No. RM"
+                  value={formData.id_pasien}
+                  onChange={(e) => setFormData({ ...formData, id_pasien: e.target.value })}
+                />
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, id_pasien: generateNoRekamMedis() }))}
+                  className="px-3 py-2.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 shadow-sm"
+                >
+                  Generate
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-1">NIK</label>
+              <input
+                type="text"
+                required
+                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                placeholder="Masukkan NIK"
+                value={formData.nik}
+                onChange={(e) => setFormData({ ...formData, nik: e.target.value })}
+              />
+            </div>
+
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Nama Lengkap</label>
               <input
@@ -458,6 +555,57 @@ const PatientManagement = () => {
           </p>
           <p className="text-xs text-red-500">Tindakan ini tidak dapat dibatalkan.</p>
         </div>
+      </Modal>
+
+      {/* --- MODAL IMPOR SATUSEHAT --- */}
+      <Modal
+        isOpen={showImportModal}
+        title="Impor Data dari SATUSEHAT"
+        onClose={() => !isImporting && setShowImportModal(false)}
+        footer={(
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setShowImportModal(false)}
+              disabled={isImporting}
+              className="flex-1 py-2.5 border border-gray-300 rounded-lg text-gray-600 font-medium hover:bg-gray-50 disabled:opacity-50"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              form="import-form"
+              disabled={isImporting}
+              className="flex-1 py-2.5 bg-teal-600 text-white rounded-lg font-bold hover:bg-teal-700 shadow-md disabled:opacity-50 flex justify-center items-center gap-2"
+            >
+              {isImporting ? (
+                <><RefreshCw size={18} className="animate-spin" /> Mengimpor...</>
+              ) : (
+                'Impor Data'
+              )}
+            </button>
+          </div>
+        )}
+      >
+        <form id="import-form" onSubmit={handleImportSatusehat} className="space-y-4">
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase block mb-1">NIK Pasien (16 Digit)</label>
+            <input
+              type="text"
+              required
+              maxLength={16}
+              minLength={16}
+              pattern="\d{16}"
+              className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none text-sm"
+              placeholder="Masukkan 16 digit NIK"
+              value={importNik}
+              onChange={(e) => setImportNik(e.target.value.replace(/\D/g, ''))}
+            />
+            <p className="text-xs text-gray-400 mt-2">
+              Sistem akan menarik data pasien dari database SATUSEHAT (Sandbox/Staging) berdasarkan NIK dan menyimpannya secara otomatis ke database lokal.
+            </p>
+          </div>
+        </form>
       </Modal>
 
     </div>

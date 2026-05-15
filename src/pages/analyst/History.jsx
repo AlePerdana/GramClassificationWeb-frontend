@@ -81,7 +81,7 @@ const History = () => {
   // Logic Filter
   const filteredData = historyData.filter(item => {
     const patientName = String(item.patient_name || item.patientName || item.nama_pasien || item.nama_lengkap || '').toLowerCase();
-    const code = String(item.specimen_code || item.specimenCode || item.code || item.id_specimen || item.id_spesimen || item.specimen_id || item.specimenId || '').toLowerCase();
+    const code = String(item.accession_number || item.specimen_code || item.specimenCode || item.code || item.id_specimen || item.id_spesimen || item.specimen_id || item.specimenId || '').toLowerCase();
     const status = getStatusLabel(item);
 
     const matchSearch = patientName.includes(searchTerm.toLowerCase()) || code.includes(searchTerm.toLowerCase());
@@ -240,8 +240,11 @@ const History = () => {
 
                     {/* Kode Sampel */}
                     <td className="p-5 text-center">
-                      <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600 border border-gray-200 inline-block">
-                        {item.specimen_code || item.specimenCode || item.code || item.id_specimen || item.id_spesimen || item.specimen_id || item.specimenId || '-'}
+                      <span 
+                        className="text-[10px] font-mono bg-gray-50 px-2 py-0.5 rounded border border-gray-100 text-gray-500 inline-block max-w-[120px] truncate"
+                        title={item.accession_number || item.specimen_code || item.specimenCode || item.code || item.id_specimen || item.id_spesimen || item.specimen_id || item.specimenId}
+                      >
+                        {item.accession_number || item.specimen_code || item.specimenCode || item.code || item.id_specimen || item.id_spesimen || item.specimen_id || item.specimenId || '-'}
                       </span>
                     </td>
 

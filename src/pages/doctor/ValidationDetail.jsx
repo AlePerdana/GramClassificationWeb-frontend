@@ -64,6 +64,7 @@ const ValidationDetail = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [submitMessage, setSubmitMessage] = useState('');
+  const [syncToSatusehat, setSyncToSatusehat] = useState(true);
 
   const [showModal, setShowModal] = useState(false);
   const [activeCrop, setActiveCrop] = useState(null);
@@ -154,12 +155,26 @@ const ValidationDetail = () => {
     return {
       specimenCode: specimenData?.specimen_code || specimenData?.specimen_id || resolvedSpecimenId,
       idPasien: patient?.id_pasien || patient?.patient_id || '-',
+      nik: patient?.nik || '-',
       name: patient?.nama || patient?.name || specimenData?.patient_name || '-',
       dob: patient?.tanggal_lahir || patient?.birth_date || '-',
       age: patient?.umur || patient?.age || '-',
       gender: patient?.jenis_kelamin || patient?.gender || '-',
       analyst: specimenData?.analyst_name || specimenData?.analyst || '-',
-      date: specimenData?.tanggal || specimenData?.created_at || '-'
+      date: specimenData?.tanggal || specimenData?.created_at || '-',
+      accessionNumber: specimenData?.accession_number || specimenData?.specimen_code || '-',
+      specimenType: specimenData?.specimen_type || '-',
+      doctorSender: specimenData?.doctor_sender || '-',
+      clinicalDiagnosis: specimenData?.clinical_diagnosis || '-',
+      collectedAt: specimenData?.collected_at || '-',
+      receivedAt: specimenData?.received_at || '-',
+      microscopeType: specimenData?.microscope_type || '-',
+      magnification: specimenData?.magnification || '-',
+      imageResolution: specimenData?.image_resolution || '-',
+      analystNote: specimenData?.analyst_note || '-',
+      validationStatus: specimenData?.validation_status || '-',
+      validatedAt: specimenData?.validated_at || '-',
+      validator: specimenData?.validator || '-'
     };
   }, [specimenData, resolvedSpecimenId]);
 
@@ -235,7 +250,10 @@ const ValidationDetail = () => {
           Accept: 'application/json',
           ...authService.getAuthorizationHeader(),
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          ...payload,
+          sync_satusehat: syncToSatusehat
+        })
       });
 
       if (response.status === 401) {
@@ -285,62 +303,77 @@ const ValidationDetail = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h3 className="font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4">Identitas Pasien</h3>
-          <div className="space-y-4">
-            <div>
-              <p className="text-xs text-slate-500 font-semibold uppercase">ID Pasien</p>
-              <p className="text-lg font-medium text-slate-800">{displayData.idPasien}</p>
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <div className="flex flex-col md:flex-row gap-8">
+          {/* 1. DATA PASIEN */}
+          <div className="flex-1 space-y-4">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-50 pb-2 text-sm uppercase tracking-wider">
+              <span className="w-1.5 h-4 bg-blue-600 rounded-full"></span> Data Pasien
+            </h3>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">Nama Lengkap</p><p className="font-bold text-slate-800">{displayData.name}</p></div>
+              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">ID Pasien</p><p className="font-mono text-slate-800">{displayData.idPasien}</p></div>
+              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">NIK</p><p className="font-semibold text-slate-700">{displayData.nik}</p></div>
+              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">Umur / Jenis Kelamin</p><p className="font-semibold text-slate-700">{displayData.age} / {displayData.gender}</p></div>
             </div>
-            <div>
-              <p className="text-xs text-slate-500 font-semibold uppercase">Nama Lengkap</p>
-              <p className="text-lg font-medium text-slate-800">{displayData.name}</p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-xs text-slate-500 font-semibold uppercase">Tanggal Lahir</p>
-                <p className="text-sm font-medium text-slate-800">{displayData.dob}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500 font-semibold uppercase">Umur</p>
-                <p className="text-sm font-medium text-slate-800">{displayData.age}</p>
-              </div>
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 font-semibold uppercase">Jenis Kelamin</p>
-              <p className="text-sm font-medium text-slate-800">{displayData.gender}</p>
-            </div>
-            <div className="pt-2 border-t border-slate-100">
-              <p className="text-xs text-slate-500 font-semibold uppercase">Analis</p>
-              <p className="text-sm font-medium text-slate-800">{displayData.analyst}</p>
-              <p className="text-xs text-slate-500 mt-1">{displayData.date}</p>
+          </div>
+
+          <div className="hidden md:block w-px bg-slate-100"></div>
+
+          {/* 2. DATA KLINIS */}
+          <div className="flex-1 space-y-4">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-50 pb-2 text-sm uppercase tracking-wider">
+              <span className="w-1.5 h-4 bg-blue-600 rounded-full"></span> Data Klinis
+            </h3>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">ID Spesimen</p><p className="font-semibold text-slate-700">{displayData.accessionNumber}</p></div>
+              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">Jenis Spesimen</p><p className="font-semibold text-slate-700">{displayData.specimenType}</p></div>
+              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">Analis</p><p className="font-semibold text-slate-700">{displayData.analyst}</p></div>
+              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">Diagnosa Klinis</p><p className="font-semibold text-slate-700">{displayData.clinicalDiagnosis}</p></div>
             </div>
           </div>
         </div>
+      </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col md:col-span-2">
-          <h3 className="font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4">Catatan Dokter</h3>
-          <textarea
-            className="flex-1 w-full p-4 border border-slate-200 rounded-lg bg-slate-50 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-            placeholder="Tambahkan catatan klinis atau observasi tambahan di sini..."
-            rows={8}
-            value={doctorNotes}
-            onChange={(e) => setDoctorNotes(e.target.value)}
-          />
-        </div>
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4 flex items-center gap-2">
+          <span className="w-1.5 h-4 bg-blue-600 rounded-full"></span> Catatan Dokter
+        </h3>
+        <textarea
+          className="w-full p-4 border border-slate-200 rounded-lg bg-slate-50 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none transition-all"
+          placeholder="Tambahkan catatan klinis atau observasi tambahan di sini..."
+          rows={3}
+          value={doctorNotes}
+          onChange={(e) => setDoctorNotes(e.target.value)}
+        />
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-6 border-b border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50/50">
           <h3 className="font-bold text-slate-800 text-lg">Hasil Klasifikasi Gram Stain</h3>
-          <button
-            onClick={handleSubmitValidation}
-            disabled={isSubmitting || rows.length === 0}
-            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-bold shadow-md hover:bg-blue-700 active:scale-95 transition-all flex items-center gap-2 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100"
-          >
-            <Check size={18} /> {isSubmitting ? 'Menyimpan...' : 'Validasi Hasil'}
-          </button>
+          <div className="flex flex-col items-end gap-2">
+            <label className="flex items-center gap-3 cursor-pointer group mb-1">
+              <span className="text-sm font-medium text-slate-500 group-hover:text-blue-600 transition-colors">
+                Sinkronisasi hasil ke SATUSEHAT
+              </span>
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={syncToSatusehat}
+                  onChange={(e) => setSyncToSatusehat(e.target.checked)}
+                />
+                <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+              </div>
+            </label>
+            <button
+              onClick={handleSubmitValidation}
+              disabled={isSubmitting || rows.length === 0}
+              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-bold shadow-md hover:bg-blue-700 active:scale-95 transition-all flex items-center gap-2 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100"
+            >
+              <Check size={18} /> {isSubmitting ? 'Menyimpan...' : 'Validasi Hasil'}
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -355,8 +388,8 @@ const ValidationDetail = () => {
                 <th className="p-4 text-center w-24">
                   <div className="flex flex-col items-center gap-1">
                     <span>Sertakan</span>
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       className="w-4 h-4 text-blue-600 rounded cursor-pointer"
                       checked={Object.values(selectedRows).length > 0 && Object.values(selectedRows).every(Boolean)}
                       onChange={(e) => {
@@ -449,8 +482,8 @@ const ValidationDetail = () => {
                         </div>
                       </td>
                       <td className="p-4 text-center">
-                        <input 
-                          type="checkbox" 
+                        <input
+                          type="checkbox"
                           className="w-5 h-5 text-blue-600 rounded cursor-pointer transition-transform hover:scale-110"
                           checked={!!selectedRows[rowKey]}
                           onChange={(e) => {
@@ -475,15 +508,15 @@ const ValidationDetail = () => {
           <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm text-gray-500">
             <span>Menampilkan {paginatedResults.length} dari {specimenData.results.length} data</span>
             <div className="flex gap-2 items-center">
-              <button 
-                className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors" 
+              <button
+                className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors"
                 disabled={currentPage <= 1}
                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
               >
                 Sebelumnya
               </button>
               <span className="px-2 py-1 text-gray-500 font-medium">Hal {currentPage} / {totalPages}</span>
-              <button 
+              <button
                 className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors"
                 disabled={currentPage >= totalPages}
                 onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}

@@ -116,7 +116,7 @@ const History = () => {
               date,
               time,
               patient: item?.patient_name || item?.patientName || item?.nama_pasien || item?.nama_lengkap || '-',
-              code: item?.specimen_code || item?.specimenCode || item?.code || item?.id_specimen || item?.id_spesimen || item?.specimen_id || item?.specimenId || '-',
+              code: item?.accession_number || item?.specimen_code || item?.specimenCode || item?.code || item?.id_specimen || item?.id_spesimen || item?.specimen_id || item?.specimenId || '-',
               analyst: item?.analis_pengirim || item?.analyst || item?.analyst_name || '-',
               doctor: item?.dokter || item?.doctor || item?.doctor_name || '-',
               status: 'Valid',

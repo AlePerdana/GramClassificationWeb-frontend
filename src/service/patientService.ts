@@ -9,6 +9,8 @@ export interface PatientQueueListParams extends paramWithSearch {
 }
 
 export interface PatientUpsertRequest {
+    id_pasien?: string;
+    nik: string;
     nama_lengkap: string;
     jenis_kelamin: string;
     tanggal_lahir: string;
@@ -130,6 +132,24 @@ export class PatientService {
         const data = await readJsonSafely(response);
         if (!response.ok) {
             throw new Error(getMessageFromJson(data) || `Failed to delete patient: ${response.statusText}`);
+        }
+        return (data as JsonRecord) || {};
+    }
+
+    async importSatusehat(nik: string): Promise<JsonRecord> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/patients/import-satusehat`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+            body: JSON.stringify({ nik }),
+        });
+        const data = await readJsonSafely(response);
+        if (!response.ok) {
+            const detail = (data as JsonRecord)?.detail;
+            throw new Error(typeof detail === 'string' ? detail : getMessageFromJson(data) || `Failed to import patient: ${response.statusText}`);
         }
         return (data as JsonRecord) || {};
     }

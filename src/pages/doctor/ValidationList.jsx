@@ -198,19 +198,19 @@ const ValidationList = () => {
                   const specimenId = patient.id_specimen ?? patient.specimen_id ?? patient.id;
                   const displayStatus = resolveLegacyStatus(patient);
                   const patientName = patient.nama_pasien || patient.name || '-';
-                  const sampleCode = patient.kode_sampel || patient.sampleCode || specimenId || '-';
+                  const sampleCode = patient.accession_number || patient.kode_sampel || patient.sampleCode || specimenId || '-';
                   const analystName = patient.analis_pengirim || patient.analyst || '-';
                   const uploadTime = getQueueTime(patient) || '-';
                   const priorityInfo = getPriorityBadge(getPriorityLevel(patient));
 
                   return (
                   <tr key={specimenId} className="hover:bg-blue-50/30 transition-colors group">
-                    {/* Tanggal */}
+                    {/* Waktu Masuk */}
                     <td className="p-5 text-center">
-                      <div className="flex items-center justify-center gap-2 text-gray-600 font-medium">
-                        <span>{uploadTime}</span>
+                      <div className="flex flex-col items-center justify-center gap-1.5">
+                        <span className="text-gray-600 font-medium text-xs">{uploadTime}</span>
                         {priorityInfo && (
-                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${priorityInfo.className}`}>
+                          <span className={`px-2 py-0.5 text-[9px] font-bold rounded-full uppercase tracking-tighter ${priorityInfo.className}`}>
                             {priorityInfo.label}
                           </span>
                         )}
@@ -228,7 +228,10 @@ const ValidationList = () => {
 
                     {/* Kode Sampel */}
                     <td className="p-5 text-center">
-                      <span className="text-[10px] font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 border border-gray-200 inline-block">
+                      <span 
+                        className="text-[10px] font-mono bg-gray-50 px-2 py-0.5 rounded border border-gray-100 text-gray-500 inline-block max-w-[120px] truncate"
+                        title={sampleCode}
+                      >
                         {sampleCode}
                       </span>
                     </td>

@@ -77,12 +77,12 @@ const AnalystPatientList = () => {
 
   const calculatePriority = (patient) => {
     const dateObj = toSortableDate(getQueueTime(patient));
-    if (!dateObj) return 'normal';
+    if (!dateObj) return 'low';
     const diffMinutes = Math.max(0, Math.floor((Date.now() - dateObj.getTime()) / 60000));
     
-    if (diffMinutes > 15) return 'kritis';
-    if (diffMinutes > 5) return 'tinggi';
-    return 'normal';
+    if (diffMinutes > 15) return 'high';
+    if (diffMinutes > 5) return 'medium';
+    return 'low';
   };
 
   const getQueueStatus = (patient) => String(patient.queue_status || patient.specimen_status || patient.status || 'pending').toLowerCase();
@@ -111,9 +111,9 @@ const AnalystPatientList = () => {
   };
 
   const getPriorityBadge = (level) => {
-    if (level === 'kritis') return { label: 'Kritis (> 15 menit)', className: 'bg-red-50 text-red-700 border border-red-100' };
-    if (level === 'tinggi') return { label: 'Tinggi (5-15 menit)', className: 'bg-amber-50 text-amber-700 border border-amber-100' };
-    if (level === 'normal') return { label: 'Normal (0-5 menit)', className: 'bg-blue-50 text-blue-700 border border-blue-100' };
+    if (level === 'high') return { label: 'Sangat prioritas', className: 'bg-red-50 text-red-700 border border-red-100' };
+    if (level === 'medium') return { label: 'Penting', className: 'bg-amber-50 text-amber-700 border border-amber-100' };
+    if (level === 'low') return { label: 'Belum prioritas', className: 'bg-slate-50 text-slate-600 border border-slate-200' };
     return null;
   };
 
@@ -136,10 +136,12 @@ const AnalystPatientList = () => {
   const filteredPatients = patients.filter((p) => {
     const patientName = (p.nama_lengkap || p.name || '').toLowerCase();
     const sampleCode = (p.id_pasien || p.sampleCode || '').toLowerCase();
+    const nik = (p.nik || '').toLowerCase();
 
     const matchSearch =
       patientName.includes(searchTerm.toLowerCase()) ||
-      sampleCode.includes(searchTerm.toLowerCase());
+      sampleCode.includes(searchTerm.toLowerCase()) ||
+      nik.includes(searchTerm.toLowerCase());
     
     // Use the dedicated priority parameter for filtering
     const matchPriority = priorityFilter === 'Semua' || getPriorityLevel(p) === priorityFilter;
@@ -216,9 +218,9 @@ const AnalystPatientList = () => {
               onChange={(e) => setPriorityFilter(e.target.value)}
             >
               <option value="Semua">Semua Prioritas</option>
-              <option value="normal">Normal (0 - 5 menit)</option>
-              <option value="tinggi">Tinggi (5 - 15 menit)</option>
-              <option value="kritis">Kritis (&gt; 15 menit)</option>
+              <option value="low">Belum prioritas (0 - 5 menit)</option>
+              <option value="medium">Penting (5 - 15 menit)</option>
+              <option value="high">Sangat prioritas (&gt; 15 menit)</option>
             </select>
           </div>
         </div>
@@ -271,6 +273,9 @@ const AnalystPatientList = () => {
                         <div>
                           <p className="font-bold text-gray-800 text-sm">{patient.nama_lengkap || patient.name}</p>
                           <p className="text-xs text-gray-500">{patient.jenis_kelamin || (patient.gender === 'L' ? 'Laki-laki' : 'Perempuan')}</p>
+                          {patient.nik && (
+                            <p className="text-[10px] text-slate-400">NIK: {patient.nik}</p>
+                          )}
                         </div>
                       </div>
                     </td>

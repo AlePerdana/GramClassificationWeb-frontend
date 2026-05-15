@@ -28,10 +28,25 @@ const fallbackReportData = {
   id_laporan: 'RPT-000',
   tanggal_cetak: '-',
   pasien: {
-    id: '-', name: '-', dob: '-', age: '-', gender: '-'
+    id: '-', nik: '-', name: '-', dob: '-', age: '-', gender: '-'
   },
   klinis: {
-    tanggal_sampel: '-', jenis_spesimen: 'Pewarnaan Gram', analis: '-', dokter: '-'
+    tanggal_sampel: '-',
+    jenis_spesimen: 'Pewarnaan Gram',
+    accession_number: '-',
+    doctor_sender: '-',
+    clinical_diagnosis: '-',
+    collected_at: '-',
+    received_at: '-',
+    microscope_type: '-',
+    magnification: '-',
+    image_resolution: '-',
+    analyst_note: '-',
+    validation_status: '-',
+    validated_at: '-',
+    validator: '-',
+    analis: '-',
+    dokter: '-'
   },
   hasil: {
     total_objek: 0,
@@ -65,6 +80,7 @@ const MedicalReport = () => {
       tanggal_cetak: formatDate(rawReport.tanggal_cetak),
       pasien: {
         id: rawReport?.pasien?.id_pasien || '-',
+        nik: rawReport?.pasien?.nik || '-',
         name: rawReport?.pasien?.nama || '-',
         dob: formatDate(rawReport?.pasien?.tanggal_lahir),
         age: rawReport?.pasien?.umur ? `${rawReport.pasien.umur} Tahun` : '-',
@@ -73,6 +89,18 @@ const MedicalReport = () => {
       klinis: {
         tanggal_sampel: formatDate(rawReport?.data_klinis?.tanggal_sampel),
         jenis_spesimen: rawReport?.data_klinis?.jenis_spesimen || 'Pewarnaan Gram',
+        accession_number: rawReport?.data_klinis?.accession_number || '-',
+        doctor_sender: rawReport?.data_klinis?.doctor_sender || '-',
+        clinical_diagnosis: rawReport?.data_klinis?.clinical_diagnosis || '-',
+        collected_at: formatDate(rawReport?.data_klinis?.collected_at),
+        received_at: formatDate(rawReport?.data_klinis?.received_at),
+        microscope_type: rawReport?.data_klinis?.microscope_type || '-',
+        magnification: rawReport?.data_klinis?.magnification || '-',
+        image_resolution: rawReport?.data_klinis?.image_resolution || '-',
+        analyst_note: rawReport?.data_klinis?.analyst_note || '-',
+        validation_status: rawReport?.data_klinis?.validation_status || '-',
+        validated_at: formatDate(rawReport?.data_klinis?.validated_at),
+        validator: rawReport?.data_klinis?.validator || '-',
         analis: rawReport?.data_klinis?.analis || '-',
         dokter: rawReport?.data_klinis?.dokter || '-',
       },
@@ -207,17 +235,26 @@ const MedicalReport = () => {
         </div>
 
         {/* IDENTITAS PASIEN & SPESIMEN */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 mb-8 text-sm">
-          <div className="space-y-2">
-            <div className="flex"><span className="w-40 text-gray-500 font-semibold">ID Pasien</span><span className="font-bold">: {reportData.pasien.id}</span></div>
-            <div className="flex"><span className="w-40 text-gray-500 font-semibold">Nama Lengkap</span><span className="font-bold uppercase">: {reportData.pasien.name}</span></div>
-            <div className="flex"><span className="w-40 text-gray-500 font-semibold">Umur / Jenis Kelamin</span><span className="font-bold">: {reportData.pasien.age} / {reportData.pasien.gender}</span></div>
+        <div className="flex flex-col md:flex-row gap-8 mb-8 text-sm">
+          {/* 1. DATA PASIEN */}
+          <div className="flex-1 space-y-2">
+            <h3 className="font-bold uppercase text-[11px] text-gray-400 tracking-widest border-b pb-1 mb-3">I. Identitas Pasien</h3>
+            <div className="flex"><span className="w-32 text-gray-500 font-semibold">Nama Lengkap</span><span className="font-bold uppercase">: {reportData.pasien.name}</span></div>
+            <div className="flex"><span className="w-32 text-gray-500 font-semibold">ID Pasien</span><span className="font-mono font-bold">: {reportData.pasien.id}</span></div>
+            <div className="flex"><span className="w-32 text-gray-500 font-semibold">NIK</span><span className="font-bold">: {reportData.pasien.nik}</span></div>
+            <div className="flex"><span className="w-32 text-gray-500 font-semibold">Umur / Gender</span><span className="font-bold">: {reportData.pasien.age} / {reportData.pasien.gender}</span></div>
           </div>
-          <div className="space-y-2">
-            <div className="flex"><span className="w-40 text-gray-500 font-semibold">Jenis Spesimen</span><span className="font-bold">: {reportData.klinis.jenis_spesimen}</span></div>
-            <div className="flex"><span className="w-40 text-gray-500 font-semibold">Tgl. Analisis</span><span className="font-bold">: {reportData.klinis.tanggal_sampel}</span></div>
-            <div className="flex"><span className="w-40 text-gray-500 font-semibold">Analis Medis</span><span className="font-bold">: {reportData.klinis.analis}</span></div>
-            <div className="flex"><span className="w-40 text-gray-500 font-semibold">Dokter Validator</span><span className="font-bold">: {reportData.klinis.dokter}</span></div>
+
+          <div className="hidden md:block w-px bg-gray-200"></div>
+
+          {/* 2. DATA KLINIS */}
+          <div className="flex-1 space-y-2">
+            <h3 className="font-bold uppercase text-[11px] text-gray-400 tracking-widest border-b pb-1 mb-3">II. Informasi Klinis</h3>
+            <div className="flex"><span className="w-32 text-gray-500 font-semibold">ID Spesimen</span><span className="font-bold">: {reportData.klinis.accession_number}</span></div>
+            <div className="flex"><span className="w-32 text-gray-500 font-semibold">Jenis Spesimen</span><span className="font-bold">: {reportData.klinis.jenis_spesimen}</span></div>
+            <div className="flex"><span className="w-32 text-gray-500 font-semibold">Diagnosa Klinis</span><span className="font-bold">: {reportData.klinis.clinical_diagnosis}</span></div>
+            <div className="flex"><span className="w-32 text-gray-500 font-semibold">Analis Medis</span><span className="font-bold">: {reportData.klinis.analis}</span></div>
+            <div className="flex"><span className="w-32 text-gray-500 font-semibold">Tgl. Analisis</span><span className="font-bold">: {reportData.klinis.tanggal_sampel}</span></div>
           </div>
         </div>
 
@@ -269,7 +306,10 @@ const MedicalReport = () => {
           <h3 className="font-bold uppercase text-sm mb-2">C. Kesimpulan Klinis</h3>
           <p className="text-sm font-semibold mb-6">{reportData.hasil.kesimpulan}</p>
 
-          <h3 className="font-bold uppercase text-sm mb-2">D. Catatan Dokter</h3>
+          <h3 className="font-bold uppercase text-sm mb-2">D. Catatan Analis</h3>
+          <p className="text-sm text-gray-800 mb-6">{reportData.klinis.analyst_note || '-'}</p>
+
+          <h3 className="font-bold uppercase text-sm mb-2">E. Catatan Dokter</h3>
           <p className="text-sm text-gray-800">{reportData.hasil.catatan_dokter || '-'}</p>
         </div>
 

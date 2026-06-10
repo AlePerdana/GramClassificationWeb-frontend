@@ -12,16 +12,35 @@ const appendNgrokSkip = (url) => {
   return `${url}${separator}ngrok-skip-browser-warning=1`;
 };
 const joinApiUrl = (path) => {
-  if (!path) return '';
-  const raw = String(path).trim();
+  let raw = String(path || '').trim();
+  if (!raw) return '';
   if (/^https?:\/\//i.test(raw)) {
-    if (API_HOST.startsWith('https://') && /^http:\/\//i.test(raw)) {
-      return appendNgrokSkip(raw.replace(/^http:\/\//i, 'https://'));
+    try {
+      const urlObj = new URL(raw);
+      raw = urlObj.pathname + urlObj.search;
+    } catch (e) {
+      raw = raw.replace(/^https?:\/\/[^\/]+/, '');
     }
-    return appendNgrokSkip(raw);
   }
   const normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '');
   return appendNgrokSkip(`${API_HOST}/${normalized}`);
+};
+
+const normalizeGram = (value) => {
+  const v = String(value || '').toLowerCase();
+  if (!v) return null;
+  if (v.includes('posit')) return 'Positif';
+  if (v.includes('negat')) return 'Negatif';
+  return value;
+};
+
+const normalizeShape = (value) => {
+  const v = String(value || '').toLowerCase();
+  if (!v) return null;
+  if (v.includes('kokus') || v.includes('coccus')) return 'Kokus';
+  if (v.includes('batang') || v.includes('basil') || v.includes('bacillus')) return 'Batang';
+  if (v.includes('spir')) return 'Spiral';
+  return value;
 };
 
 const fallbackReportData = {
@@ -50,8 +69,8 @@ const fallbackReportData = {
   },
   hasil: {
     total_objek: 0,
-    gram_positif: { kokus: 0, batang: 0 },
-    gram_negatif: { kokus: 0, batang: 0 },
+    gram_positif: { kokus: 0, batang: 0, spiral: 0 },
+    gram_negatif: { kokus: 0, batang: 0, spiral: 0 },
     kesimpulan: '-',
     catatan_dokter: '-'
   },
@@ -69,11 +88,49 @@ const MedicalReport = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [rawReport, setRawReport] = useState(null);
+  const [allSpecimens, setAllSpecimens] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
   const reportData = useMemo(() => {
     if (!rawReport) return fallbackReportData;
+
+    const classifications = Array.isArray(rawReport?.classifications) ? rawReport.classifications : [];
+    
+    let gp_kokus = 0;
+    let gp_batang = 0;
+    let gp_spiral = 0;
+    let gn_kokus = 0;
+    let gn_batang = 0;
+    let gn_spiral = 0;
+
+    classifications.forEach(c => {
+      const gram = normalizeGram(c.validation_gram || c.classification_gram || c.ai_gram);
+      const bentuk = normalizeShape(c.validation_bentuk || c.classification_bentuk);
+      
+      const isRejected = String(c.validation_gram || '').toLowerCase() === 'reject' ||
+                         String(c.validation_bentuk || '').toLowerCase() === 'reject';
+                         
+      if (!isRejected && gram && bentuk) {
+        if (gram === 'Positif') {
+          if (bentuk === 'Kokus') gp_kokus++;
+          else if (bentuk === 'Batang') gp_batang++;
+          else if (bentuk === 'Spiral') gp_spiral++;
+        } else if (gram === 'Negatif') {
+          if (bentuk === 'Kokus') gn_kokus++;
+          else if (bentuk === 'Batang') gn_batang++;
+          else if (bentuk === 'Spiral') gn_spiral++;
+        }
+      }
+    });
+
+    const hasClassifications = classifications.length > 0;
+    const finalGpKokus = hasClassifications ? gp_kokus : (rawReport?.ringkasan_hasil?.gram_positif_kokus || 0);
+    const finalGpBatang = hasClassifications ? gp_batang : (rawReport?.ringkasan_hasil?.gram_positif_batang || 0);
+    const finalGpSpiral = hasClassifications ? gp_spiral : (rawReport?.ringkasan_hasil?.gram_positif_spiral || 0);
+    const finalGnKokus = hasClassifications ? gn_kokus : (rawReport?.ringkasan_hasil?.gram_negatif_kokus || 0);
+    const finalGnBatang = hasClassifications ? gn_batang : (rawReport?.ringkasan_hasil?.gram_negatif_batang || 0);
+    const finalGnSpiral = hasClassifications ? gn_spiral : (rawReport?.ringkasan_hasil?.gram_negatif_spiral || 0);
 
     return {
       id_laporan: rawReport.id_laporan || `RPT-${rawReport.specimen_id || id || '000'}`,
@@ -105,14 +162,16 @@ const MedicalReport = () => {
         dokter: rawReport?.data_klinis?.dokter || '-',
       },
       hasil: {
-        total_objek: rawReport?.ringkasan_hasil?.total_objek || 0,
+        total_objek: rawReport?.ringkasan_hasil?.total_objek || (finalGpKokus + finalGpBatang + finalGpSpiral + finalGnKokus + finalGnBatang + finalGnSpiral),
         gram_positif: {
-          kokus: rawReport?.ringkasan_hasil?.gram_positif_kokus || 0,
-          batang: rawReport?.ringkasan_hasil?.gram_positif_batang || 0,
+          kokus: finalGpKokus,
+          batang: finalGpBatang,
+          spiral: finalGpSpiral,
         },
         gram_negatif: {
-          kokus: rawReport?.ringkasan_hasil?.gram_negatif_kokus || 0,
-          batang: rawReport?.ringkasan_hasil?.gram_negatif_batang || 0,
+          kokus: finalGnKokus,
+          batang: finalGnBatang,
+          spiral: finalGnSpiral,
         },
         kesimpulan: rawReport?.ringkasan_hasil?.kesimpulan || '-',
         catatan_dokter: rawReport?.ringkasan_hasil?.catatan_dokter || '-',
@@ -122,6 +181,20 @@ const MedicalReport = () => {
             id: index + 1,
             img: joinApiUrl(img?.image_url || ''),
             label: img?.label || 'Gambar Bukti',
+          }))
+        : [],
+      main_image_url: joinApiUrl(rawReport?.main_image_url || ''),
+      classifications: Array.isArray(rawReport?.classifications)
+        ? rawReport.classifications.map((c) => ({
+            id: c.id,
+            roi_bbox: c.roi_bbox,
+            classification_gram: c.classification_gram,
+            classification_bentuk: c.classification_bentuk,
+            validation_gram: c.validation_gram,
+            validation_bentuk: c.validation_bentuk,
+            is_rejected:
+              String(c.validation_gram || '').toLowerCase() === 'reject' ||
+              String(c.validation_bentuk || '').toLowerCase() === 'reject',
           }))
         : [],
     };
@@ -162,6 +235,29 @@ const MedicalReport = () => {
         }
 
         setRawReport(result);
+
+        // Also fetch all_specimens for annotated images
+        try {
+          const detailResponse = await fetch(`${API_HOST}/api/doctor/specimen-details/${id}`, {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              ...authService.getAuthorizationHeader(),
+            },
+          });
+
+          if (detailResponse.ok) {
+            const detailResult = await detailResponse.json();
+            const specs = detailResult?.data?.all_specimens || detailResult?.all_specimens || [];
+            setAllSpecimens(specs.map(s => ({
+              ...s,
+              annotated_image_url: joinApiUrl(s.annotated_image_url || ''),
+              main_image_url: joinApiUrl(s.main_image_url || ''),
+            })));
+          }
+        } catch {
+          // Non-critical, report data is still available
+        }
       } catch (err) {
         setRawReport(null);
         setError(err?.message || 'Gagal memuat laporan medis.');
@@ -265,41 +361,70 @@ const MedicalReport = () => {
             <thead>
               <tr className="bg-gray-50 font-bold">
                 <th className="border border-gray-300 p-2" rowSpan="2">Morfologi</th>
-                <th className="border border-gray-300 p-2" colSpan="2">Gram Positif (Ungu)</th>
-                <th className="border border-gray-300 p-2" colSpan="2">Gram Negatif (Merah)</th>
+                <th className="border border-gray-300 p-2" colSpan="3">Gram Positif (Ungu)</th>
+                <th className="border border-gray-300 p-2" colSpan="3">Gram Negatif (Merah)</th>
               </tr>
               <tr className="bg-gray-50 font-bold text-xs">
                 <th className="border border-gray-300 p-2">Kokus</th>
                 <th className="border border-gray-300 p-2">Batang</th>
+                <th className="border border-gray-300 p-2">Spiral</th>
                 <th className="border border-gray-300 p-2">Kokus</th>
                 <th className="border border-gray-300 p-2">Batang</th>
+                <th className="border border-gray-300 p-2">Spiral</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td className="border border-gray-300 p-2 font-bold bg-gray-50">Jumlah Terdeteksi</td>
-                <td className="border border-gray-300 p-2">{reportData.hasil.gram_positif.kokus}</td>
-                <td className="border border-gray-300 p-2">{reportData.hasil.gram_positif.batang}</td>
-                <td className="border border-gray-300 p-2">{reportData.hasil.gram_negatif.kokus}</td>
-                <td className="border border-gray-300 p-2">{reportData.hasil.gram_negatif.batang}</td>
+                <td className="border border-gray-300 p-2 font-bold text-purple-700">{reportData.hasil.gram_positif.kokus}</td>
+                <td className="border border-gray-300 p-2 font-bold text-purple-700">{reportData.hasil.gram_positif.batang}</td>
+                <td className="border border-gray-300 p-2 font-bold text-purple-700">{reportData.hasil.gram_positif.spiral}</td>
+                <td className="border border-gray-300 p-2 font-bold text-red-700">{reportData.hasil.gram_negatif.kokus}</td>
+                <td className="border border-gray-300 p-2 font-bold text-red-700">{reportData.hasil.gram_negatif.batang}</td>
+                <td className="border border-gray-300 p-2 font-bold text-red-700">{reportData.hasil.gram_negatif.spiral}</td>
+              </tr>
+              <tr className="bg-gray-50/50">
+                <td className="border border-gray-300 p-2 font-bold">Total</td>
+                <td className="border border-gray-300 p-2 font-bold text-purple-700" colSpan="3">
+                  {reportData.hasil.gram_positif.kokus + reportData.hasil.gram_positif.batang + reportData.hasil.gram_positif.spiral} Positif
+                </td>
+                <td className="border border-gray-300 p-2 font-bold text-red-700" colSpan="3">
+                  {reportData.hasil.gram_negatif.kokus + reportData.hasil.gram_negatif.batang + reportData.hasil.gram_negatif.spiral} Negatif
+                </td>
               </tr>
             </tbody>
           </table>
           <p className="text-xs text-gray-500 italic">*Hasil di atas telah divalidasi oleh Dokter Spesialis Mikrobiologi Klinis.</p>
         </div>
 
-        {/* GAMBAR BUKTI */}
-        <div className="mb-8">
-          <h3 className="font-bold bg-gray-100 p-2 border-l-4 border-black mb-4 uppercase text-sm">B. Bukti Visual Mikroskopis (Tervalidasi)</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-            {reportData.gambar_bukti.map((img) => (
-              <div key={img.id} className="border border-gray-300 p-2 rounded w-full max-w-[170px]">
-                <NgrokImage src={img.img} alt={img.label} className="w-full h-auto object-cover border border-gray-200" />
-                <p className="text-[10px] text-center font-bold mt-2">{img.label}</p>
-              </div>
-            ))}
+        {/* BUKTI VISUAL MIKROSKOPIS */}
+        {allSpecimens.length > 0 ? (
+          <div className="mb-8">
+            <h3 className="font-bold bg-gray-100 p-2 border-l-4 border-black mb-4 uppercase text-sm">B. Bukti Visual Mikroskopis (Tervalidasi)</h3>
+            <div className="grid grid-cols-2 gap-4">
+              {allSpecimens.map((spec, idx) => (
+                <div key={spec.specimen_id || idx} className="bg-white p-2 rounded border border-gray-200 flex items-center justify-center">
+                  <NgrokImage
+                    src={spec.annotated_image_url || spec.main_image_url}
+                    alt={`Spesimen ${idx + 1} terannotasi`}
+                    className="w-full h-auto object-contain rounded"
+                  />
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : reportData.gambar_bukti.length > 0 ? (
+          <div className="mb-8">
+            <h3 className="font-bold bg-gray-100 p-2 border-l-4 border-black mb-4 uppercase text-sm">B. Bukti Visual Mikroskopis (Tervalidasi)</h3>
+            <div className="grid grid-cols-2 gap-4">
+              {reportData.gambar_bukti.map((img) => (
+                <div key={img.id} className="border border-gray-300 p-2 rounded flex items-center justify-center">
+                  <NgrokImage src={img.img} alt={img.label} className="w-full h-auto object-contain" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {/* KESIMPULAN & CATATAN KLINIS */}
         <div className="mb-12 border-t border-b border-gray-300 py-6">
@@ -319,7 +444,6 @@ const MedicalReport = () => {
             <p className="text-sm mb-1">Surabaya, {reportData.tanggal_cetak}</p>
             <p className="text-sm font-bold mb-20">Dokter Penanggung Jawab,</p>
             <p className="text-sm font-black underline">{reportData.klinis.dokter}</p>
-            <p className="text-xs text-gray-600">NIP. 19800512 201001 1 003</p>
           </div>
         </div>
 

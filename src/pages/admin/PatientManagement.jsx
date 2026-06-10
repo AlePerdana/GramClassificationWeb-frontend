@@ -173,14 +173,47 @@ const PatientManagement = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    // Validasi No. RM
+    const cleanRm = String(formData.id_pasien || '').trim();
+    if (!cleanRm) {
+      showToast('error', 'Nomor Rekam Medis wajib diisi.');
+      return;
+    }
+
+    // Validasi NIK
+    const cleanNik = String(formData.nik || '').trim();
+    if (cleanNik.length !== 16 || !/^\d{16}$/.test(cleanNik)) {
+      showToast('error', 'NIK harus terdiri dari 16 digit angka.');
+      return;
+    }
+
+    // Validasi Nama Lengkap
+    const cleanName = String(formData.nama_lengkap || '').trim();
+    if (!cleanName) {
+      showToast('error', 'Nama lengkap wajib diisi.');
+      return;
+    }
+
+    // Validasi Tanggal Lahir
+    const birthDate = formData.tanggal_lahir;
+    if (!birthDate) {
+      showToast('error', 'Tanggal lahir wajib diisi.');
+      return;
+    }
+    const today = new Date().toISOString().split('T')[0];
+    if (birthDate > today) {
+      showToast('error', 'Tanggal lahir tidak boleh di masa depan.');
+      return;
+    }
+
     const payload = {
-      id_pasien: formData.id_pasien,
-      nik: formData.nik,
-      nama_lengkap: formData.nama_lengkap,
+      id_pasien: cleanRm,
+      nik: cleanNik,
+      nama_lengkap: cleanName,
       jenis_kelamin: formData.jenis_kelamin,
-      tanggal_lahir: formData.tanggal_lahir,
-      alamat: formData.alamat,
-      no_telepon: formData.no_telepon,
+      tanggal_lahir: birthDate,
+      alamat: String(formData.alamat || '').trim(),
+      no_telepon: String(formData.no_telepon || '').trim(),
       waktu_masuk: normalizeWaktuMasuk(getDefaultWaktuMasuk()),
     };
 
@@ -444,7 +477,7 @@ const PatientManagement = () => {
                   className="flex-1 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                   placeholder="Masukkan No. RM"
                   value={formData.id_pasien}
-                  onChange={(e) => setFormData({ ...formData, id_pasien: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, id_pasien: e.target.value.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 20) })}
                 />
                 <button
                   type="button"
@@ -464,7 +497,7 @@ const PatientManagement = () => {
                 className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                 placeholder="Masukkan NIK"
                 value={formData.nik}
-                onChange={(e) => setFormData({ ...formData, nik: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, nik: e.target.value.replace(/\D/g, '').slice(0, 16) })}
               />
             </div>
 
@@ -476,7 +509,7 @@ const PatientManagement = () => {
                 className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                 placeholder="Masukkan nama pasien"
                 value={formData.nama_lengkap}
-                onChange={(e) => setFormData({ ...formData, nama_lengkap: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, nama_lengkap: e.target.value.replace(/[^a-zA-Z\s.,'-]/g, '') })}
               />
             </div>
 
@@ -519,7 +552,7 @@ const PatientManagement = () => {
                 type="text"
                 className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                 value={formData.no_telepon}
-                onChange={(e) => setFormData({ ...formData, no_telepon: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, no_telepon: e.target.value.replace(/[^\d+]/g, '').slice(0, 15) })}
               />
             </div>
           </div>

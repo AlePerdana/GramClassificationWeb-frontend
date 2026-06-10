@@ -50,7 +50,37 @@ const History = () => {
             : Array.isArray(raw?.results)
             ? raw.results
             : [];
-          setHistoryData(data);
+
+          // Normalize: if flat legacy format, group by patient name
+          if (data.length > 0 && !('specimens' in (data[0] || {}))) {
+            const map = new Map();
+            for (const item of data) {
+              const key = item.nama_pasien || item.patient_name || 'unknown';
+              if (!map.has(key)) {
+                map.set(key, {
+                  patient_id: item.patient_id || null,
+                  id_pasien: item.id_pasien || null,
+                  nama_pasien: item.nama_pasien || item.patient_name || '-',
+                  nik: item.nik || null,
+                  earliest_upload: item.tanggal || item.uploaded_at || null,
+                  total_specimens: 0,
+                  total_g_positif: 0,
+                  total_g_negatif: 0,
+                  overall_status: null,
+                  specimens: [],
+                });
+              }
+              const g = map.get(key);
+              g.total_specimens += 1;
+              g.total_g_positif += item.total_g_positif || 0;
+              g.total_g_negatif += item.total_g_negatif || 0;
+              g.overall_status = g.overall_status || item.status || null;
+              g.specimens.push(item);
+            }
+            setHistoryData(Array.from(map.values()));
+          } else {
+            setHistoryData(data);
+          }
         } else {
           setHistoryData([]);
         }
@@ -78,15 +108,21 @@ const History = () => {
     return isDone ? LEGACY_STATUS.done : LEGACY_STATUS.waiting;
   };
 
-  // Logic Filter
+  // Filter Logic - searches patient name and specimen codes
   const filteredData = historyData.filter(item => {
-    const patientName = String(item.patient_name || item.patientName || item.nama_pasien || item.nama_lengkap || '').toLowerCase();
-    const code = String(item.accession_number || item.specimen_code || item.specimenCode || item.code || item.id_specimen || item.id_spesimen || item.specimen_id || item.specimenId || '').toLowerCase();
-    const status = getStatusLabel(item);
+    const patientName = String(item.nama_pasien || '').toLowerCase();
+    const hasSpecimens = item.specimens;
+    const specimenCodes = hasSpecimens
+      ? item.specimens.map(s => String(s.accession_number || s.id_specimen || '').toLowerCase()).join(' ')
+      : String(item.accession_number || item.id_specimen || '').toLowerCase();
 
-    const matchSearch = patientName.includes(searchTerm.toLowerCase()) || code.includes(searchTerm.toLowerCase());
-    const matchStatus = filterStatus === 'Semua Status' || status === filterStatus;
-    return matchSearch && matchStatus;
+    const matchSearch = patientName.includes(searchTerm.toLowerCase()) || specimenCodes.includes(searchTerm.toLowerCase());
+
+    if (filterStatus !== 'Semua Status') {
+      const status = hasSpecimens ? (item.overall_status || '') : getStatusLabel(item);
+      if (status !== filterStatus && !status.includes(filterStatus)) return false;
+    }
+    return matchSearch;
   });
 
   useEffect(() => {
@@ -139,24 +175,19 @@ const History = () => {
     item.counts?.neg ??
     0;
 
-  const getRejectedCount = (item) =>
-    item.rejected_count ??
-    item.summary?.rejected_count ??
-    item.result_summary?.rejected_count ??
-    item.classification_summary?.rejected_count ??
-    item.counts?.rejected ??
-    0;
-
-  const getDetailId = (item) =>
-    item.id_specimen ||
-    item.id_spesimen ||
-    item.specimen_id ||
-    item.specimenId ||
-    item.specimen_code ||
-    item.specimenCode ||
-    item.id ||
-    item.patient_id ||
-    item.patientId;
+  const getDetailId = (item) => {
+    // For grouped data, use the first specimen's id_specimen
+    if (item.specimens && item.specimens.length > 0) {
+      return item.specimens[0].id_specimen || item.specimens[0].specimen_id || item.specimens[0].id;
+    }
+    return item.id_specimen ||
+      item.id_spesimen ||
+      item.specimen_id ||
+      item.specimenId ||
+      item.specimen_code ||
+      item.specimenCode ||
+      item.id;
+  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto bg-slate-50/80 p-4 rounded-2xl">
@@ -206,7 +237,7 @@ const History = () => {
               <tr className="bg-gray-50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wide text-center">
                 <th className="p-5 text-center">Tanggal & Waktu</th>
                 <th className="p-5 text-center">Nama Pasien</th>
-                <th className="p-5 text-center">Kode Sampel</th>
+                <th className="p-5 text-center">Jumlah Sampel</th>
                 <th className="p-5 text-center">Detail Jumlah</th>
                 <th className="p-5 text-center">Status Validasi</th>
                 <th className="p-5 text-center">Aksi</th>
@@ -214,91 +245,53 @@ const History = () => {
             </thead>
             <tbody className="divide-y divide-gray-50 text-sm">
               {isLoading ? (
-                <tr>
-                  <td colSpan="6" className="p-10 text-center text-gray-400 italic">
-                    Memuat data riwayat...
-                  </td>
-                </tr>
-              ) : paginatedData.length > 0 ? (
-                paginatedData.map((item) => (
+                <tr><td colSpan="6" className="p-10 text-center text-gray-400 italic">Memuat data riwayat...</td></tr>
+              ) : paginatedData.length === 0 ? (
+                <tr><td colSpan="6" className="p-10 text-center text-gray-400 italic">Tidak ada data riwayat ditemukan.</td></tr>
+              ) : (
+                paginatedData.map((item) => {
+                  const hasSpecimens = item.specimens && item.specimens.length > 0;
+                  const displayName = item.nama_pasien || item.patient_name || item.patientName || '-';
+                  const uploadTime = item.earliest_upload || item.tanggal || item.uploaded_at || item.date || '-';
+                  const totalPos = item.total_g_positif || getPosCount(item);
+                  const totalNeg = item.total_g_negatif || getNegCount(item);
+                  const specCount = item.total_specimens || (hasSpecimens ? item.specimens.length : 1);
+                  const statusLabel = hasSpecimens ? (item.overall_status || getStatusLabel(item.specimens[0])) : getStatusLabel(item);
+
+                  return (
                   <tr key={getDetailId(item)} className="hover:bg-blue-50/30 transition-colors">
-                    {/* Tanggal */}
+                    <td className="p-5 text-center"><div className="flex items-center justify-center gap-2 text-gray-600 font-medium">{uploadTime}</div></td>
                     <td className="p-5 text-center">
-                      <div className="flex items-center justify-center gap-2 text-gray-600 font-medium">
-                        {item.tanggal || item.created_at || item.createdAt || item.uploaded_at || item.date || '-'}
-                      </div>
+                      <p className="font-bold text-gray-800">{displayName}</p>
                     </td>
-
-                    {/* Pasien */}
                     <td className="p-5 text-center">
-                      <div className="flex items-center justify-center gap-3">
-                        <div>
-                          <p className="font-bold text-gray-800">{item.patient_name || item.patientName || item.nama_pasien || '-'}</p>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Kode Sampel */}
-                    <td className="p-5 text-center">
-                      <span 
-                        className="text-[10px] font-mono bg-gray-50 px-2 py-0.5 rounded border border-gray-100 text-gray-500 inline-block max-w-[120px] truncate"
-                        title={item.accession_number || item.specimen_code || item.specimenCode || item.code || item.id_specimen || item.id_spesimen || item.specimen_id || item.specimenId}
-                      >
-                        {item.accession_number || item.specimen_code || item.specimenCode || item.code || item.id_specimen || item.id_spesimen || item.specimen_id || item.specimenId || '-'}
+                      <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">
+                        {specCount} sampel
                       </span>
                     </td>
-
-                    {/* Detail Jumlah */}
                     <td className="p-5 text-center">
                       <div className="flex flex-wrap items-center justify-center gap-2">
                         <div className="flex items-center px-2 py-1 rounded-md bg-blue-50 border border-blue-100 text-blue-700 text-xs font-medium">
-                          <span className="opacity-70 mr-1">Pos:</span>
-                          <span className="font-bold">{getPosCount(item)}</span>
+                          <span className="opacity-70 mr-1">Pos:</span><span className="font-bold">{totalPos}</span>
                         </div>
                         <div className="flex items-center px-2 py-1 rounded-md bg-red-50 border border-red-100 text-red-700 text-xs font-medium">
-                          <span className="opacity-70 mr-1">Neg:</span>
-                          <span className="font-bold">{getNegCount(item)}</span>
+                          <span className="opacity-70 mr-1">Neg:</span><span className="font-bold">{totalNeg}</span>
                         </div>
-                        {getRejectedCount(item) > 0 && (
-                          <div className="flex items-center px-2 py-1 rounded-md bg-gray-100 border border-gray-200 text-gray-600 text-xs font-medium">
-                            <span className="opacity-70 mr-1">Tolak:</span>
-                            <span className="font-bold">{getRejectedCount(item)}</span>
-                          </div>
-                        )}
-                        {getRejectedCount(item) === 0 && (
-                          <div className="flex items-center px-2 py-1 rounded-md bg-gray-50 border border-gray-100 text-gray-400 text-xs font-medium">
-                            <span className="opacity-70 mr-1">Tolak:</span>
-                            <span className="font-bold">0</span>
-                          </div>
-                        )}
                       </div>
                     </td>
-
-                    {/* Status */}
-                    <td className="p-5 text-center flex justify-center">
-                      <StatusBadge status={getStatusLabel(item)} />
-                    </td>
-
-                    {/* Aksi */}
                     <td className="p-5 text-center">
                       <div className="flex items-center justify-center">
-                        <button
-                          onClick={() => navigate(`/analyst/history/${getDetailId(item)}`)}
-                          className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
-                          title="Lihat Detail Riwayat"
-                        >
-                          Detail
-                        </button>
+                        <StatusBadge status={statusLabel} />
+                      </div>
+                    </td>
+                    <td className="p-5 text-center">
+                      <div className="flex items-center justify-center">
+                        <button onClick={() => navigate(`/analyst/history/${getDetailId(item)}`)} className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95" title="Lihat Detail Riwayat">Detail</button>
                       </div>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="6" className="p-10 text-center text-gray-400 italic">
-                    Tidak ada data riwayat ditemukan.
-                  </td>
-                </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

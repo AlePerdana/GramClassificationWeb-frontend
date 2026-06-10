@@ -56,7 +56,7 @@ const getRejectedCount = (item) =>
   0;
 
 const isValidatedItem = (item) => {
-  const status = String(item?.status || item?.validation_status || item?.status_validasi || '').toLowerCase();
+  const status = String(item?.status || item?.validation_status || item?.status_validasi || item?.overall_status || '').toLowerCase();
   return (
     item?.is_validated === true ||
     item?.sudah_divalidasi === true ||
@@ -109,21 +109,29 @@ const History = () => {
         const mapped = rawList
           .filter((item) => isValidatedItem(item))
           .map((item, index) => {
-            const when = item?.validated_at || item?.tanggal_validasi || item?.updated_at || item?.created_at || item?.tanggal || item?.date;
+            const specimens = Array.isArray(item?.specimens) ? item.specimens : [item];
+            const firstSpec = specimens[0] || {};
+            const when = firstSpec?.validated_at || firstSpec?.tanggal_validasi || item?.earliest_upload;
             const { date, time } = toDateTimeParts(when);
+
+            // Hitung total stats dari semua spesimen
+            const totalPos = specimens.reduce((sum, s) => sum + getPositiveCount(s), 0);
+            const totalNeg = specimens.reduce((sum, s) => sum + getNegativeCount(s), 0);
+            const totalRejected = specimens.reduce((sum, s) => sum + getRejectedCount(s), 0);
+
             return {
-              id: item?.id ?? item?.id_specimen ?? item?.specimen_id ?? item?.specimenId ?? index,
+              id: item?.patient_id ?? item?.id ?? index,
+              firstSpecimenId: firstSpec?.id_specimen ?? firstSpec?.id ?? null,
               date,
               time,
-              patient: item?.patient_name || item?.patientName || item?.nama_pasien || item?.nama_lengkap || '-',
-              code: item?.accession_number || item?.specimen_code || item?.specimenCode || item?.code || item?.id_specimen || item?.id_spesimen || item?.specimen_id || item?.specimenId || '-',
+              patient: item?.nama_pasien || item?.nama_lengkap || '-',
               analyst: item?.analis_pengirim || item?.analyst || item?.analyst_name || '-',
               doctor: item?.dokter || item?.doctor || item?.doctor_name || '-',
-              status: 'Valid',
               stats: {
-                pos: getPositiveCount(item),
-                neg: getNegativeCount(item),
-                rejected: getRejectedCount(item)
+                pos: totalPos,
+                neg: totalNeg,
+                rejected: totalRejected,
+                specimenCount: specimens.length
               }
             };
           });
@@ -142,7 +150,7 @@ const History = () => {
   // Filter Logic Sederhana
   const filteredData = historyData.filter(item => {
     const term = searchTerm.toLowerCase();
-    return item.patient.toLowerCase().includes(term) || item.code.toLowerCase().includes(term);
+    return item.patient.toLowerCase().includes(term);
   });
 
 
@@ -182,13 +190,15 @@ const History = () => {
 
         {/* TABLE */}
         <div className="w-full overflow-x-auto pb-4 custom-scrollbar">
-          <table className="w-full text-center border-collapse">
+          <table className="w-full text-center border-collapse whitespace-nowrap min-w-[900px]">
             <thead>
-              <tr className="bg-white border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wide">
-                <th className="p-4 text-left pl-6">Waktu Validasi</th>
-                <th className="p-4 text-left">Identitas Pasien</th>
-                <th className="p-4 text-center">Ringkasan Hasil</th>
-                <th className="p-4 text-center">Aksi</th>
+              <tr className="bg-gray-50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wide text-center">
+                <th className="p-5 text-center">Tanggal & Waktu</th>
+                <th className="p-5 text-center">Nama Pasien</th>
+                <th className="p-5 text-center">Jumlah Sampel</th>
+                <th className="p-5 text-center">Detail Jumlah</th>
+                <th className="p-5 text-center">Status Validasi</th>
+                <th className="p-5 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 text-sm">
@@ -196,67 +206,67 @@ const History = () => {
                 paginatedData.map((item) => (
                   <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
 
-                    {/* Kolom 1: Waktu Validasi */}
-                    <td className="p-4 text-left pl-6 whitespace-nowrap">
+                    {/* Kolom 1: Tanggal & Waktu */}
+                    <td className="p-5 text-center whitespace-nowrap">
                       <div className="font-bold text-gray-800">{item.date}</div>
-                      <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                      <div className="text-xs text-gray-500 flex items-center justify-center gap-1 mt-0.5">
                         <Clock size={12} /> {item.time} WIB
                       </div>
                     </td>
 
-                    {/* Kolom 2: Identitas Pasien (Nama + ID Spesimen) */}
-                    <td className="p-4 text-left whitespace-nowrap">
+                    {/* Kolom 2: Nama Pasien */}
+                    <td className="p-5 text-center">
                       <div className="font-bold text-gray-800">{item.patient}</div>
-                      <div className="text-xs font-mono text-gray-500 mt-0.5">{item.code}</div>
                     </td>
 
-                    {/* Kolom 3: Ringkasan Hasil */}
-                    <td className="p-4 text-center">
+                    {/* Kolom 3: Jumlah Sampel */}
+                    <td className="p-5 text-center">
+                      <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">
+                        {item.stats.specimenCount} sampel
+                      </span>
+                    </td>
+
+                    {/* Kolom 4: Detail Jumlah */}
+                    <td className="p-5 text-center">
                       <div className="flex flex-wrap items-center justify-center gap-2">
                         <div className="flex items-center px-2 py-1 rounded-md bg-blue-50 border border-blue-100 text-blue-700 text-xs font-medium">
                           <span className="opacity-70 mr-1">Pos:</span>
                           <span className="font-bold">{item.stats.pos}</span>
                         </div>
-
                         <div className="flex items-center px-2 py-1 rounded-md bg-red-50 border border-red-100 text-red-700 text-xs font-medium">
                           <span className="opacity-70 mr-1">Neg:</span>
                           <span className="font-bold">{item.stats.neg}</span>
                         </div>
-
-                        {item.stats.rejected > 0 && (
-                          <div className="flex items-center px-2 py-1 rounded-md bg-gray-100 border border-gray-200 text-gray-600 text-xs font-medium">
-                            <span className="opacity-70 mr-1">Tolak:</span>
-                            <span className="font-bold">{item.stats.rejected}</span>
-                          </div>
-                        )}
-
-                        {item.stats.rejected === 0 && (
-                          <div className="flex items-center px-2 py-1 rounded-md bg-gray-50 border border-gray-100 text-gray-400 text-xs font-medium">
-                            <span className="opacity-70 mr-1">Tolak:</span>
-                            <span className="font-bold">0</span>
-                          </div>
-                        )}
+                        <div className="flex items-center px-2 py-1 rounded-md bg-gray-50 border border-gray-100 text-gray-400 text-xs font-medium">
+                          <span className="opacity-70 mr-1">Tolak:</span>
+                          <span className="font-bold">{item.stats.rejected}</span>
+                        </div>
                       </div>
                     </td>
 
-                    {/* Kolom 4: Aksi */}
-                    <td className="p-4 text-center">
-                      <div className="flex items-center justify-center">
-                        <button
-                          onClick={() => navigate(`/doctor/history/${item.id}`)}
-                          className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
-                          title="Lihat Detail Riwayat"
-                        >
-                          Detail
-                        </button>
-                      </div>
+                    {/* Kolom 5: Status Validasi */}
+                    <td className="p-5 text-center">
+                      <span className="bg-green-50 text-green-700 px-2 py-1 rounded-full text-[10px] font-bold border border-green-100 w-fit">
+                        Selesai Validasi
+                      </span>
+                    </td>
+
+                    {/* Kolom 6: Aksi */}
+                    <td className="p-5 text-center">
+                      <button
+                        onClick={() => navigate(`/doctor/history/${item.firstSpecimenId}`)}
+                        className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
+                        title="Lihat Detail Riwayat"
+                      >
+                        Detail
+                      </button>
                     </td>
 
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan="4" className="p-10 text-center text-gray-400 italic">
+                  <td colSpan="6" className="p-10 text-center text-gray-400 italic">
                     Tidak ada data riwayat untuk periode ini.
                   </td>
                 </tr>

@@ -143,6 +143,16 @@ const UserManagement = () => {
     }
 
     const normalizedEmail = String(formData.email || '').trim();
+    if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setErrorMessage('Format email tidak valid');
+      return;
+    }
+
+    const cleanUsername = String(formData.username || '').trim();
+    if (!/^[a-z0-9_-]+$/.test(cleanUsername)) {
+      setErrorMessage('Username hanya boleh huruf kecil, angka, - dan _');
+      return;
+    }
 
     const payload = {
       full_name: formData.name,
@@ -348,7 +358,7 @@ const UserManagement = () => {
                   className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                   placeholder="Nama Lengkap"
                   value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  onChange={(e) => setFormData({...formData, name: e.target.value.replace(/[^a-zA-Z\s.,'-]/g, '')})}
                 />
               </div>
 
@@ -360,7 +370,7 @@ const UserManagement = () => {
                     className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                     placeholder="username"
                     value={formData.username}
-                    onChange={(e) => setFormData({...formData, username: e.target.value})}
+                    onChange={(e) => setFormData({...formData, username: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '')})}
                   />
                 </div>
                 <div>
@@ -370,7 +380,7 @@ const UserManagement = () => {
                     className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                     placeholder="email@contoh.com"
                     value={formData.email}
-                    onChange={(e) => setFormData({...formData, email: e.target.value})}
+                    onChange={(e) => setFormData({...formData, email: e.target.value.trim()})}
                   />
                 </div>
               </div>

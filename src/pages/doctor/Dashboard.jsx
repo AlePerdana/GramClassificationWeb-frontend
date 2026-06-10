@@ -81,6 +81,32 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [filter, setFilter] = useState('Harian');
   const [validationQueue, setValidationQueue] = useState([]);
+  const [chartData, setChartData] = useState([]);
+  const [isChartLoading, setIsChartLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchChartData = async () => {
+      setIsChartLoading(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/doctor/dashboard-chart?filter=${filter}`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...authService.getAuthorizationHeader(),
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setChartData(data);
+        }
+      } catch (error) {
+        console.error('Gagal mengambil data chart:', error);
+      } finally {
+        setIsChartLoading(false);
+      }
+    };
+    fetchChartData();
+  }, [filter]);
 
   useEffect(() => {
     const fetchQueue = async () => {
@@ -112,7 +138,7 @@ const Dashboard = () => {
             : [];
 
         const mapped = payload.map((item) => ({
-          id: item?.id_specimen ?? item?.specimen_id ?? item?.id,
+          id: item?.specimens?.[0]?.id_specimen ?? item?.id_specimen ?? item?.specimen_id ?? item?.id,
           name: item?.nama_pasien || item?.patient_name || '-',
           result: item?.hasil_gram || 'Menunggu Validasi',
           confidence: item?.confidence ? `${item.confidence}%` : '-',
@@ -140,10 +166,25 @@ const Dashboard = () => {
   };
 
   const getChartData = () => {
+    if (chartData && chartData.length > 0) return chartData;
     switch (filter) {
       case 'Hari Ini': return dataHariIni;
       case 'Harian': return dataHarian;
       case 'Mingguan': return dataMingguan;
+      case 'Bulanan': return [
+        { name: 'Jan', pending: 15, validated: 90 },
+        { name: 'Feb', pending: 20, validated: 110 },
+        { name: 'Mar', pending: 12, validated: 130 },
+        { name: 'Apr', pending: 18, validated: 105 },
+        { name: 'Mei', pending: 25, validated: 125 },
+        { name: 'Jun', pending: 14, validated: 140 },
+        { name: 'Jul', pending: 19, validated: 130 },
+        { name: 'Agt', pending: 22, validated: 135 },
+        { name: 'Sep', pending: 15, validated: 150 },
+        { name: 'Okt', pending: 10, validated: 165 },
+        { name: 'Nov', pending: 17, validated: 145 },
+        { name: 'Des', pending: 12, validated: 170 },
+      ];
       case 'Tahunan': return dataTahunan;
       default: return dataHarian;
     }
@@ -217,6 +258,7 @@ const Dashboard = () => {
                     <option value="Hari Ini">Hari Ini</option>
                     <option value="Harian">Harian</option>
                     <option value="Mingguan">Mingguan</option>
+                    <option value="Bulanan">Bulanan</option>
                     <option value="Tahunan">Tahunan</option>
                 </select>
             </div>

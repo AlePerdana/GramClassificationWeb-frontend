@@ -269,15 +269,7 @@ const AnalystPatientList = () => {
 
                     {/* Nama Pasien */}
                     <td className="p-5 text-center">
-                      <div className="flex items-center justify-center gap-3">
-                        <div>
-                          <p className="font-bold text-gray-800 text-sm">{patient.nama_lengkap || patient.name}</p>
-                          <p className="text-xs text-gray-500">{patient.jenis_kelamin || (patient.gender === 'L' ? 'Laki-laki' : 'Perempuan')}</p>
-                          {patient.nik && (
-                            <p className="text-[10px] text-slate-400">NIK: {patient.nik}</p>
-                          )}
-                        </div>
-                      </div>
+                      <p className="font-bold text-gray-800">{patient.nama_lengkap || patient.name}</p>
                     </td>
 
                     {/* Status Badge */}

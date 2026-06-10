@@ -286,6 +286,30 @@ const ModelManagement = () => {
       return;
     }
 
+    const batchSize = toOptionalNumber(retrainForm.batch_size);
+    if (batchSize !== undefined && (batchSize < 1 || batchSize > 1024 || !Number.isInteger(batchSize))) {
+      showToast('error', 'Batch Size harus berupa bilangan bulat antara 1 dan 1024.');
+      return;
+    }
+
+    const epochsHead = toOptionalNumber(retrainForm.epochs_head);
+    if (epochsHead !== undefined && (epochsHead < 1 || epochsHead > 1000 || !Number.isInteger(epochsHead))) {
+      showToast('error', 'Epochs Head harus berupa bilangan bulat antara 1 dan 1000.');
+      return;
+    }
+
+    const epochsFt = toOptionalNumber(retrainForm.epochs_ft);
+    if (epochsFt !== undefined && (epochsFt < 1 || epochsFt > 1000 || !Number.isInteger(epochsFt))) {
+      showToast('error', 'Epochs Fine-tune harus berupa bilangan bulat antara 1 dan 1000.');
+      return;
+    }
+
+    const valRatio = toOptionalNumber(retrainForm.val_ratio_crop);
+    if (valRatio !== undefined && (valRatio < 0.01 || valRatio > 0.99)) {
+      showToast('error', 'Val Ratio Crop harus di antara 0.01 dan 0.99.');
+      return;
+    }
+
     const payload = {
       model_id: modelId,
       epochs_head: toOptionalNumber(retrainForm.epochs_head),
@@ -425,8 +449,10 @@ const ModelManagement = () => {
                   <label className="block text-xs font-bold text-gray-700 mb-1">Batch Size (opsional)</label>
                   <input
                     type="number"
+                    min="1"
+                    max="1024"
                     value={retrainForm.batch_size}
-                    onChange={(e) => setRetrainForm((p) => ({ ...p, batch_size: e.target.value }))}
+                    onChange={(e) => setRetrainForm((p) => ({ ...p, batch_size: e.target.value.replace(/\D/g, '') }))}
                     className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
                     placeholder="contoh: 16"
                   />
@@ -436,8 +462,10 @@ const ModelManagement = () => {
                   <label className="block text-xs font-bold text-gray-700 mb-1">Epochs Head (opsional)</label>
                   <input
                     type="number"
+                    min="1"
+                    max="1000"
                     value={retrainForm.epochs_head}
-                    onChange={(e) => setRetrainForm((p) => ({ ...p, epochs_head: e.target.value }))}
+                    onChange={(e) => setRetrainForm((p) => ({ ...p, epochs_head: e.target.value.replace(/\D/g, '') }))}
                     className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
                     placeholder="contoh: 5"
                   />
@@ -447,8 +475,10 @@ const ModelManagement = () => {
                   <label className="block text-xs font-bold text-gray-700 mb-1">Epochs Fine-tune (opsional)</label>
                   <input
                     type="number"
+                    min="1"
+                    max="1000"
                     value={retrainForm.epochs_ft}
-                    onChange={(e) => setRetrainForm((p) => ({ ...p, epochs_ft: e.target.value }))}
+                    onChange={(e) => setRetrainForm((p) => ({ ...p, epochs_ft: e.target.value.replace(/\D/g, '') }))}
                     className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
                     placeholder="contoh: 10"
                   />
@@ -459,12 +489,14 @@ const ModelManagement = () => {
                   <input
                     type="number"
                     step="0.01"
+                    min="0.01"
+                    max="0.99"
                     value={retrainForm.val_ratio_crop}
                     onChange={(e) => setRetrainForm((p) => ({ ...p, val_ratio_crop: e.target.value }))}
                     className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
                     placeholder="contoh: 0.2"
                   />
-                  <p className="text-[10px] text-gray-400 mt-1">Nilai desimal, mis. 0.2 untuk 20%.</p>
+                  <p className="text-[10px] text-gray-400 mt-1">Nilai desimal, mis. 0.2 untuk 20% (batas: 0.01 - 0.99).</p>
                 </div>
               </div>
 

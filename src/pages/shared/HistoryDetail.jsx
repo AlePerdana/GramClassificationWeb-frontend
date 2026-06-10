@@ -1,12 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import authService from '../../service/authService';
 import {
   ArrowLeft, Printer, Edit,
-  Info, User, Activity, FileText
+  Info, User, Activity, FileText,
+  ChevronLeft, ChevronRight, AlertTriangle
 } from 'lucide-react';
 import { APP_CONFIG } from '../../utils/constant';
 import NgrokImage from '../../components/common/NgrokImage';
+import AnnotatedImage from '../../components/common/AnnotatedImage';
 
 const API_HOST = APP_CONFIG.API_HOST;
 
@@ -17,13 +20,15 @@ const appendNgrokSkip = (url) => {
 };
 
 const joinApiUrl = (path) => {
-  if (!path) return '';
-  const raw = String(path).trim();
+  let raw = String(path || '').trim();
+  if (!raw) return '';
   if (/^https?:\/\//i.test(raw)) {
-    if (API_HOST.startsWith('https://') && /^http:\/\//i.test(raw)) {
-      return appendNgrokSkip(raw.replace(/^http:\/\//i, 'https://'));
+    try {
+      const urlObj = new URL(raw);
+      raw = urlObj.pathname + urlObj.search;
+    } catch (e) {
+      raw = raw.replace(/^https?:\/\/[^\/]+/, '');
     }
-    return appendNgrokSkip(raw);
   }
   const normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '');
   return appendNgrokSkip(`${API_HOST}/${normalized}`);
@@ -53,38 +58,63 @@ const HistoryDetail = () => {
   const [detailData, setDetailData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showRevisionModal, setShowRevisionModal] = useState(false);
 
   // Deteksi Role berdasarkan URL saat ini
   const isDoctor = location.pathname.includes('/doctor');
   const isAnalyst = location.pathname.includes('/analyst');
   const isDoctorHistoryDetail = isDoctor && location.pathname.includes('/doctor/history/');
+  const imageSectionRef = useRef(null);
+  const [isLoadingImage, setIsLoadingImage] = useState(false);
+
+  const fetchSpecimen = async (specimenId) => {
+    setIsLoadingImage(true);
+    setError('');
+    try {
+      const url = `${API_HOST}/api/doctor/specimen-details/${specimenId}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          ...authService.getAuthorizationHeader(),
+        },
+      });
+
+      if (response.status === 401) {
+        authService.clearSession();
+        navigate('/login');
+        return null;
+      }
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.message || result?.detail || 'Gagal mengambil detail riwayat.');
+      }
+
+      return result?.data || result;
+    } catch (err) {
+      setError(err.message || 'Terjadi kesalahan saat mengambil data.');
+      return null;
+    } finally {
+      setIsLoadingImage(false);
+    }
+  };
+
+  const switchSpecimen = async (specimenId) => {
+    const newData = await fetchSpecimen(specimenId);
+    if (newData) {
+      setDetailData(newData);
+    }
+  };
 
   useEffect(() => {
     const fetchDetail = async () => {
       setIsLoading(true);
       setError('');
       try {
-        const response = await fetch(`${API_HOST}/api/doctor/specimen-details/${id}`, {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-            ...authService.getAuthorizationHeader(),
-          },
-        });
-
-        if (response.status === 401) {
-          authService.clearSession();
-          navigate('/login');
-          return;
-        }
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(result?.message || result?.detail || 'Gagal mengambil detail riwayat.');
-        }
-
-        setDetailData(result?.data || result);
+        const data = await fetchSpecimen(id);
+        if (data) setDetailData(data);
       } catch (err) {
         setError(err.message || 'Terjadi kesalahan saat mengambil data.');
         setDetailData(null);
@@ -189,7 +219,27 @@ const HistoryDetail = () => {
         detailData?.validation_result?.catatan ||
         firstClassificationNote ||
         '',
-      crops: mappedCrops
+      crops: mappedCrops,
+      annotatedImageUrl: joinApiUrl(detailData?.annotated_image_url || ''),
+      mainImageUrl: joinApiUrl(detailData?.main_image_url || ''),
+      allSpecimens: (detailData?.all_specimens || []).map(s => ({
+        ...s,
+        annotatedImageUrl: joinApiUrl(s.annotated_image_url || ''),
+        mainImageUrl: joinApiUrl(s.main_image_url || ''),
+      })),
+      classificationList: (detailData?.classifications || []).map((item) => ({
+        id: item?.id ?? item?.classification_id,
+        roi_bbox: item?.roi_bbox,
+        roi_source: item?.roi_source,
+        classification_gram: item?.classification_gram || item?.ai_gram,
+        classification_bentuk: item?.classification_bentuk,
+        validation_gram: item?.validation_gram,
+        validation_bentuk: item?.validation_bentuk,
+        is_rejected:
+          item?.is_rejected === true ||
+          String(item?.validation_gram || '').toLowerCase() === 'reject' ||
+          String(item?.validation_bentuk || '').toLowerCase() === 'reject',
+      })),
     };
   }, [detailData, id, isDoctorHistoryDetail]);
 
@@ -207,14 +257,13 @@ const HistoryDetail = () => {
 
   // Menghitung statistik untuk header
   const totalCrops = data.crops.length;
-  const validCrops = data.crops.filter(c => c.status !== 'rejected').length;
 
   const handleAnalystRevision = () => {
     if (data.status === 'validated') {
-      const shouldContinue = window.confirm('Data sudah selesai divalidasi. Lanjutkan revisi? Status akan kembali ke Menunggu Validasi.');
-      if (!shouldContinue) return;
+      setShowRevisionModal(true);
+    } else {
+      navigate(`/analyst/process/${id}`);
     }
-    navigate(`/analyst/process/${id}`);
   };
 
   return (
@@ -300,76 +349,72 @@ const HistoryDetail = () => {
         </div>
       </div>
 
-      {/* GRID GAMBAR HASIL (Read Only) */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      {/* HASIL OBJEK TERDETEKSI — annotated image with prev/next arrows */}
+      <div ref={imageSectionRef} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
           <div>
             <h3 className="font-bold text-slate-800 text-lg">Hasil Objek Terdeteksi</h3>
-            <p className="text-xs text-slate-500 mt-1">Total {totalCrops} objek terdeteksi (Valid: {validCrops} objek).</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {totalCrops} objek —{' '}
+              <span className="text-purple-700 font-semibold">Ungu: Gram Positif</span>
+              <span className="text-pink-600 font-semibold ml-2">Pink: Gram Negatif</span>
+            </p>
           </div>
+          {data.allSpecimens.length > 1 && (
+            <div className="text-xs text-slate-400 font-medium">
+              Spesimen {data.allSpecimens.findIndex(s => s.is_current) + 1} dari {data.allSpecimens.length}
+            </div>
+          )}
         </div>
+        <div className="relative flex items-center justify-center p-6 min-h-[200px]">
+          {(data.annotatedImageUrl || data.mainImageUrl) ? (
+            <>
+              {/* Prev/Next arrows for cycling specimens */}
+              {data.allSpecimens.length > 1 && (() => {
+                const currIdx = data.allSpecimens.findIndex(s => s.is_current);
+                const prevSpec = data.allSpecimens[currIdx > 0 ? currIdx - 1 : data.allSpecimens.length - 1];
+                const nextSpec = data.allSpecimens[currIdx < data.allSpecimens.length - 1 ? currIdx + 1 : 0];
+                return (
+                  <>
+                    <button
+                      onClick={() => switchSpecimen(prevSpec.specimen_id)}
+                      disabled={isLoadingImage}
+                      className="absolute left-3 z-10 p-2.5 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-700 backdrop-blur-sm transition-all active:scale-90 shadow disabled:opacity-40 disabled:cursor-not-allowed"
+                      title={`Spesimen sebelumnya: ${prevSpec.accession_number}`}
+                    >
+                      <ChevronLeft size={24} />
+                    </button>
+                    <button
+                      onClick={() => switchSpecimen(nextSpec.specimen_id)}
+                      disabled={isLoadingImage}
+                      className="absolute right-3 z-10 p-2.5 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-700 backdrop-blur-sm transition-all active:scale-90 shadow disabled:opacity-40 disabled:cursor-not-allowed"
+                      title={`Spesimen berikutnya: ${nextSpec.accession_number}`}
+                    >
+                      <ChevronRight size={24} />
+                    </button>
+                  </>
+                );
+              })()}
 
-        <div className="p-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {data.crops.map((crop) => {
-            let borderColor = 'border-slate-200';
-            let statusBadge = null;
-
-            if (data.status === 'validated') {
-              if (crop.status === 'accepted') {
-                borderColor = 'border-green-400 ring-2 ring-green-100';
-                statusBadge = <span className="absolute top-2 right-2 bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">Sesuai AI</span>;
-              } else if (crop.status === 'revised') {
-                borderColor = 'border-orange-400 ring-2 ring-orange-100';
-                statusBadge = <span className="absolute top-2 right-2 bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">Direvisi</span>;
-              } else if (crop.status === 'rejected') {
-                borderColor = 'border-red-400 opacity-60';
-                statusBadge = <span className="absolute top-2 right-2 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">Ditolak</span>;
-              }
-            }
-
-            return (
-              <div key={crop.id} className={`bg-white rounded-xl border ${borderColor} overflow-hidden shadow-sm relative transition-all`}>
-                {statusBadge}
-
-                <div className="aspect-square bg-slate-100 relative">
-                  <NgrokImage
-                    src={crop.img}
-                    alt="Crop"
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                  {data.status === 'validated' && crop.status === 'rejected' && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-full h-1 bg-red-500/80 -rotate-45 absolute"></div>
-                      <div className="w-full h-1 bg-red-500/80 rotate-45 absolute"></div>
-                    </div>
-                  )}
+              {/* Loading overlay for image switching */}
+              {isLoadingImage && (
+                <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 rounded-lg">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-xs text-slate-500 font-medium">Memuat gambar...</span>
+                  </div>
                 </div>
+              )}
 
-                <div className="p-3 text-center">
-                  {data.status === 'validated' && crop.status !== 'rejected' ? (
-                    <>
-                      <p className={`text-xs font-bold ${crop.displayGram === 'Positif' ? 'text-purple-700' : 'text-red-600'}`}>
-                        Gram {crop.displayGram}
-                      </p>
-                      <p className="text-xs text-slate-600 font-medium">{crop.displayShape}</p>
-                    </>
-                  ) : data.status === 'pending' ? (
-                    <>
-                      <p className="text-[10px] text-slate-400 mb-0.5">Hasil Validasi:</p>
-                      <p className={`text-xs font-bold ${crop.displayGram === 'Positif' ? 'text-purple-700' : 'text-red-600'}`}>
-                        Gram {crop.displayGram}
-                      </p>
-                      <p className="text-xs text-slate-600 font-medium">{crop.displayShape}</p>
-                    </>
-                  ) : (
-                    <p className="text-xs font-bold text-red-500 mt-2">Bukan Bakteri</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+              <NgrokImage
+                src={data.annotatedImageUrl || data.mainImageUrl}
+                alt="Hasil deteksi bakteri"
+                className="w-full max-w-2xl h-[450px] object-contain rounded-lg shadow bg-slate-100"
+              />
+            </>
+          ) : (
+            <p className="text-slate-400 text-sm py-10">Gambar tidak tersedia</p>
+          )}
         </div>
       </div>
 
@@ -391,6 +436,39 @@ const HistoryDetail = () => {
           </div>
         )}
       </div>
+
+      {/* MODAL KONFIRMASI REVISI */}
+      {showRevisionModal && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-6 shadow-2xl max-w-md w-full border border-slate-100 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 text-amber-500 mb-4">
+              <AlertTriangle className="w-8 h-8" />
+              <h3 className="text-lg font-bold text-slate-800">Konfirmasi Revisi</h3>
+            </div>
+            <p className="text-slate-600 text-sm leading-relaxed mb-6">
+              Data sudah selesai divalidasi. Lanjutkan revisi? Status akan kembali ke Menunggu Validasi.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowRevisionModal(false)}
+                className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-lg text-sm font-semibold transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                onClick={() => {
+                  setShowRevisionModal(false);
+                  navigate(`/analyst/process/${id}`);
+                }}
+                className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-semibold transition-all active:scale-95 shadow-md"
+              >
+                Ya, Lanjutkan
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
     </div>
   );

@@ -7,7 +7,9 @@ import {
   ZoomIn,
   ZoomOut,
   X,
-  Check
+  Check,
+  User,
+  Activity
 } from 'lucide-react';
 import { APP_CONFIG } from '../../utils/constant';
 import NgrokImage from '../../components/common/NgrokImage';
@@ -23,13 +25,15 @@ const appendNgrokSkip = (url) => {
 };
 
 const joinApiUrl = (path) => {
-  if (!path) return '';
-  const raw = String(path).trim();
+  let raw = String(path || '').trim();
+  if (!raw) return '';
   if (/^https?:\/\//i.test(raw)) {
-    if (API_HOST.startsWith('https://') && /^http:\/\//i.test(raw)) {
-      return appendNgrokSkip(raw.replace(/^http:\/\//i, 'https://'));
+    try {
+      const urlObj = new URL(raw);
+      raw = urlObj.pathname + urlObj.search;
+    } catch (e) {
+      raw = raw.replace(/^https?:\/\/[^\/]+/, '');
     }
-    return appendNgrokSkip(raw);
   }
   const normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '');
   return appendNgrokSkip(`${API_HOST}/${normalized}`);
@@ -109,12 +113,14 @@ const ValidationDetail = () => {
         }
 
         const payload = result?.data || result || null;
-        const rows = payload?.classifications || [];
+
+        // Use all_classifications from all specimens
+        const allRows = payload?.all_classifications || payload?.classifications || [];
         const initialValidations = {};
         const initialSelected = {};
 
-        rows.forEach((item, index) => {
-          const key = String(item?.id ?? item?.classification_id ?? index);
+        allRows.forEach((item, index) => {
+          const key = String(item?.id ?? `combined-${index}`);
           initialValidations[key] = {
             validation_bentuk: normalizeShape(item?.validation_bentuk || item?.classification_bentuk || ''),
             validation_gram: normalizeGram(item?.validation_gram || item?.ai_gram || item?.classification_gram || ''),
@@ -137,7 +143,7 @@ const ValidationDetail = () => {
     fetchSpecimenDetails();
   }, [resolvedSpecimenId]);
 
-  const rows = useMemo(() => specimenData?.classifications || [], [specimenData]);
+  const rows = useMemo(() => specimenData?.all_classifications || specimenData?.classifications || [], [specimenData]);
   const totalPages = Math.max(1, Math.ceil(rows.length / itemsPerPage));
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedResults = rows.slice(startIndex, startIndex + itemsPerPage);
@@ -224,13 +230,14 @@ const ValidationDetail = () => {
   const handleSubmitValidation = async () => {
     if (!resolvedSpecimenId || rows.length === 0) return;
 
+    // Submit validations for all rows across all specimens
     const payload = {
       specimen_id: Number(specimenData?.specimen_id || resolvedSpecimenId),
       validations: rows.map((item, index) => {
-        const key = String(item?.id ?? item?.classification_id ?? index);
+        const key = String(item?.id ?? index);
         const draft = validations[key] || {};
         return {
-          id: Number(item?.id ?? item?.classification_id ?? index),
+          id: Number(item?.id ?? index),
           validation_bentuk: draft.validation_bentuk || '',
           validation_gram: draft.validation_gram || '',
           catatan: draft.catatan || doctorNotes || '',
@@ -303,34 +310,29 @@ const ValidationDetail = () => {
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-        <div className="flex flex-col md:flex-row gap-8">
-          {/* 1. DATA PASIEN */}
-          <div className="flex-1 space-y-4">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-50 pb-2 text-sm uppercase tracking-wider">
-              <span className="w-1.5 h-4 bg-blue-600 rounded-full"></span> Data Pasien
-            </h3>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">Nama Lengkap</p><p className="font-bold text-slate-800">{displayData.name}</p></div>
-              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">ID Pasien</p><p className="font-mono text-slate-800">{displayData.idPasien}</p></div>
-              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">NIK</p><p className="font-semibold text-slate-700">{displayData.nik}</p></div>
-              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">Umur / Jenis Kelamin</p><p className="font-semibold text-slate-700">{displayData.age} / {displayData.gender}</p></div>
-            </div>
+      {/* INFORMASI PASIEN (Read Only) */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-8">
+        <div className="flex-1 space-y-4">
+          <h3 className="font-bold text-slate-800 flex items-center gap-2"><User size={18} className="text-blue-600" /> Data Pasien</h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div><p className="text-slate-500 text-xs">Nama Lengkap</p><p className="font-bold text-slate-800">{displayData.name}</p></div>
+            <div><p className="text-slate-500 text-xs">No. Rekam Medis</p><p className="font-bold text-slate-800">{displayData.idPasien}</p></div>
+            <div><p className="text-slate-500 text-xs">NIK</p><p className="font-semibold text-slate-700">{displayData.nik}</p></div>
+            <div><p className="text-slate-500 text-xs">Umur / Gender</p><p className="font-semibold text-slate-700">{displayData.age} / {displayData.gender}</p></div>
+            <div><p className="text-slate-500 text-xs">Tgl Lahir</p><p className="font-semibold text-slate-700">{displayData.dob}</p></div>
           </div>
-
-          <div className="hidden md:block w-px bg-slate-100"></div>
-
-          {/* 2. DATA KLINIS */}
-          <div className="flex-1 space-y-4">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-50 pb-2 text-sm uppercase tracking-wider">
-              <span className="w-1.5 h-4 bg-blue-600 rounded-full"></span> Data Klinis
-            </h3>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">ID Spesimen</p><p className="font-semibold text-slate-700">{displayData.accessionNumber}</p></div>
-              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">Jenis Spesimen</p><p className="font-semibold text-slate-700">{displayData.specimenType}</p></div>
-              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">Analis</p><p className="font-semibold text-slate-700">{displayData.analyst}</p></div>
-              <div><p className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">Diagnosa Klinis</p><p className="font-semibold text-slate-700">{displayData.clinicalDiagnosis}</p></div>
-            </div>
+        </div>
+        <div className="hidden md:block w-px bg-slate-200"></div>
+        <div className="flex-1 space-y-4">
+          <h3 className="font-bold text-slate-800 flex items-center gap-2"><Activity size={18} className="text-blue-600" /> Data Klinis</h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div><p className="text-slate-500 text-xs">Tanggal Analisis</p><p className="font-semibold text-slate-700">{displayData.date}</p></div>
+            <div><p className="text-slate-500 text-xs">Analis</p><p className="font-semibold text-slate-700">{displayData.analyst}</p></div>
+            <div><p className="text-slate-500 text-xs">ID Spesimen</p><p className="font-semibold text-slate-700">{displayData.accessionNumber}</p></div>
+            <div><p className="text-slate-500 text-xs">Jenis Spesimen</p><p className="font-semibold text-slate-700">{displayData.specimenType}</p></div>
+            <div><p className="text-slate-500 text-xs">Diagnosa Klinis Awal</p><p className="font-semibold text-slate-700">{displayData.clinicalDiagnosis}</p></div>
+            <div><p className="text-slate-500 text-xs">Resolusi Citra</p><p className="font-semibold text-slate-700">{displayData.imageResolution}</p></div>
+            <div className="col-span-2"><p className="text-slate-500 text-xs">Catatan Analis</p><p className="font-semibold text-slate-700 leading-relaxed">{displayData.analystNote}</p></div>
           </div>
         </div>
       </div>
@@ -381,7 +383,7 @@ const ValidationDetail = () => {
             <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold tracking-wider">
               <tr>
                 <th className="p-4 text-center w-16">No</th>
-                <th className="p-4 text-center w-24">Gambar</th>
+                <th className="p-4 w-24 text-center">Gambar</th>
                 <th className="p-4 w-44">Hasil AI</th>
                 <th className="p-4 text-center">Validasi Bentuk</th>
                 <th className="p-4 text-center">Validasi Gram</th>
@@ -413,7 +415,7 @@ const ValidationDetail = () => {
                 paginatedResults.map((row, index) => {
                   const rowKey = String(row?.id ?? row?.classification_id ?? (startIndex + index));
                   const draft = validations[rowKey] || {};
-                  const imageUrl = joinApiUrl(row?.image_url || row?.crop_url || '');
+                  const imageUrl = joinApiUrl(row?.image_path || row?.image_url || row?.crop_url || '');
                   const aiGram = normalizeGram(row?.ai_gram || row?.classification_gram || '-');
                   const aiShape = normalizeShape(row?.classification_bentuk || '-');
 
@@ -422,7 +424,7 @@ const ValidationDetail = () => {
                       <td className="p-4 text-center font-medium text-slate-600">{startIndex + index + 1}</td>
                       <td className="p-4">
                         <div
-                          onClick={() => openPreview(row, startIndex + index)}
+                          onClick={() => openPreview({...row, image_url: imageUrl}, startIndex + index)}
                           className="w-16 h-16 bg-slate-200 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all mx-auto"
                         >
                           {imageUrl ? (
@@ -438,6 +440,7 @@ const ValidationDetail = () => {
                           )}
                         </div>
                       </td>
+
                       <td className="p-4">
                         <p className="font-bold text-slate-800">{aiGram}</p>
                         <p className="text-xs text-slate-500">{aiShape}</p>
@@ -504,9 +507,9 @@ const ValidationDetail = () => {
         </div>
 
         {/* Pagination Footer */}
-        {specimenData?.results && specimenData.results.length > 0 && (
+        {rows.length > 0 && (
           <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-sm text-gray-500">
-            <span>Menampilkan {paginatedResults.length} dari {specimenData.results.length} data</span>
+            <span>Menampilkan {paginatedResults.length} dari {rows.length} data</span>
             <div className="flex gap-2 items-center">
               <button
                 className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors"

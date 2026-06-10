@@ -79,7 +79,33 @@ const Dashboard = () => {
   const [waitingValidationPatients, setWaitingValidationPatients] = useState([]);
   const [isQueueLoading, setIsQueueLoading] = useState(true);
   const [filter, setFilter] = useState('Harian');
+  const [chartData, setChartData] = useState([]);
+  const [isChartLoading, setIsChartLoading] = useState(true);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const fetchChartData = async () => {
+      setIsChartLoading(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/analyst/dashboard-chart?filter=${filter}`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...authService.getAuthorizationHeader(),
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setChartData(data);
+        }
+      } catch (error) {
+        console.error('Gagal mengambil data chart:', error);
+      } finally {
+        setIsChartLoading(false);
+      }
+    };
+    fetchChartData();
+  }, [API_BASE_URL, filter]);
 
   useEffect(() => {
     const fetchPatients = async () => {
@@ -144,10 +170,25 @@ const Dashboard = () => {
   };
 
   const getChartData = () => {
+    if (chartData && chartData.length > 0) return chartData;
     switch (filter) {
       case 'Hari Ini': return dataHariIni;
       case 'Harian': return dataHarian;
       case 'Mingguan': return dataMingguan;
+      case 'Bulanan': return [
+        { name: 'Jan', masuk: 80, selesai: 70 },
+        { name: 'Feb', masuk: 90, selesai: 85 },
+        { name: 'Mar', masuk: 110, selesai: 100 },
+        { name: 'Apr', masuk: 95, selesai: 90 },
+        { name: 'Mei', masuk: 120, selesai: 110 },
+        { name: 'Jun', masuk: 130, selesai: 125 },
+        { name: 'Jul', masuk: 115, selesai: 110 },
+        { name: 'Agt', masuk: 125, selesai: 120 },
+        { name: 'Sep', masuk: 140, selesai: 135 },
+        { name: 'Okt', masuk: 150, selesai: 145 },
+        { name: 'Nov', masuk: 135, selesai: 130 },
+        { name: 'Des', masuk: 160, selesai: 150 },
+      ];
       case 'Tahunan': return dataTahunan;
       default: return dataHarian;
     }
@@ -190,6 +231,7 @@ const Dashboard = () => {
                 <option value="Hari Ini">Hari Ini</option>
                 <option value="Harian">Harian</option>
                 <option value="Mingguan">Mingguan</option>
+                <option value="Bulanan">Bulanan</option>
                 <option value="Tahunan">Tahunan</option>
               </select>
             </div>

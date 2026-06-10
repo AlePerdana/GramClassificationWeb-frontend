@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../../service/authService';
-import { Search, CheckCircle } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { APP_CONFIG } from '../../utils/constant';
 
 const API_BASE_URL = APP_CONFIG.API_HOST;
@@ -79,13 +79,49 @@ const ValidationList = () => {
           throw new Error(result?.message || 'Gagal mengambil antrean dokter.');
         }
 
+        // Support both grouped (new) and flat (legacy) formats
         const payload = Array.isArray(result)
           ? result
           : Array.isArray(result?.data)
           ? result.data
           : [];
 
-        setQueueData(payload);
+        // Normalize: if data is already grouped by patient (has 'specimens' array), use as-is.
+        // If flat (legacy format per-specimen), group it here for consistency.
+        if (payload.length > 0 && !('specimens' in payload[0])) {
+          const map = new Map();
+          for (const item of payload) {
+            const key = item.id_pasien || item.nama_pasien || 'unknown';
+            if (!map.has(key)) {
+              map.set(key, {
+                id_pasien: item.id_pasien,
+                nama_pasien: item.nama_pasien || item.name || '-',
+                nik: item.nik,
+                earliest_upload: item.tanggal_upload || item.uploaded_at,
+                total_specimens: 0,
+                total_bakteri: 0,
+                specimens: [],
+              });
+            }
+            const g = map.get(key);
+            g.total_specimens += 1;
+            const bakteri = item.total_bakteri || 0;
+            g.total_bakteri += bakteri;
+            g.specimens.push({
+              id_specimen: item.id_specimen ?? item.specimen_id ?? item.id,
+              accession_number: item.accession_number || item.kode_sampel || '',
+              tanggal_upload: item.tanggal_upload || item.uploaded_at,
+              specimen_type: item.specimen_type,
+              doctor_sender: item.doctor_sender,
+              clinical_diagnosis: item.clinical_diagnosis,
+              validation_status: item.validation_status,
+              total_bakteri: bakteri,
+            });
+          }
+          setQueueData(Array.from(map.values()));
+        } else {
+          setQueueData(payload);
+        }
       } catch (error) {
         console.error('Gagal mengambil antrean:', error);
         setQueueData([]);
@@ -97,24 +133,20 @@ const ValidationList = () => {
     fetchQueue();
   }, [navigate]);
 
-  const resolveLegacyStatus = (item) => {
-    const isDone =
-      item?.is_validated === true ||
-      item?.sudah_divalidasi === true ||
-      Boolean(item?.validated_at) ||
-      Boolean(item?.tanggal_validasi);
-
-    return isDone ? LEGACY_STATUS.done : LEGACY_STATUS.pending;
-  };
-
-  // Filter Logic
+  // Filter Logic (searches across patient name + specimen codes)
   const filteredPatients = queueData.filter((p) => {
-    const patientName = String(p.nama_pasien || p.name || '').toLowerCase();
-    const specimenCode = String(p.kode_sampel || p.sampleCode || p.id_specimen || '').toLowerCase();
+    const patientName = String(p.nama_pasien || '').toLowerCase();
+    const specimenCodes = (p.specimens || []).map(s =>
+      String(s.accession_number || s.id_specimen || '').toLowerCase()
+    ).join(' ');
+    const matchSearch = patientName.includes(searchTerm.toLowerCase()) || specimenCodes.includes(searchTerm.toLowerCase());
 
-    const matchSearch = patientName.includes(searchTerm.toLowerCase()) || specimenCode.includes(searchTerm.toLowerCase());
-    const matchPriority = priorityFilter === 'Semua' || getPriorityLevel(p) === priorityFilter;
-    return matchSearch && matchPriority;
+    if (priorityFilter !== 'Semua') {
+      const firstSpec = p.specimens?.[0];
+      const level = getPriorityLevel(firstSpec || p);
+      if (level !== priorityFilter) return false;
+    }
+    return matchSearch;
   });
 
   useEffect(() => {
@@ -122,8 +154,8 @@ const ValidationList = () => {
   }, [searchTerm, priorityFilter]);
 
   const sortedPatients = [...filteredPatients].sort((a, b) => {
-    const aDate = toSortableDate(getQueueTime(a));
-    const bDate = toSortableDate(getQueueTime(b));
+    const aDate = toSortableDate(a.earliest_upload || getQueueTime(a.specimens?.[0] || a));
+    const bDate = toSortableDate(b.earliest_upload || getQueueTime(b.specimens?.[0] || b));
     return (aDate?.getTime() ?? Infinity) - (bDate?.getTime() ?? Infinity);
   });
 
@@ -141,7 +173,7 @@ const ValidationList = () => {
       {/* HEADER */}
       <div>
         <h1 className="text-2xl font-bold text-gray-800">Validasi Hasil</h1>
-        <p className="text-gray-500 mt-1">Daftar pemeriksaan yang menunggu tinjauan medis Anda.</p>
+        <p className="text-gray-500 mt-1">Daftar pemeriksaan yang menunggu tinjauan medis Anda, dikelompokkan per pasien.</p>
       </div>
 
       {/* TABLE CARD */}
@@ -154,7 +186,7 @@ const ValidationList = () => {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
             <input 
               type="text" 
-              placeholder="Cari Nama Pasien atau Kode..." 
+              placeholder="Cari Nama Pasien..." 
               className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 text-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -177,105 +209,62 @@ const ValidationList = () => {
 
         {/* TABLE */}
         <div className="w-full overflow-x-auto pb-4 custom-scrollbar">
-          <table className="w-full text-center border-collapse whitespace-nowrap min-w-[900px]">
+          <table className="w-full text-center border-collapse">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wide">
+              <tr className="bg-gray-50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wide text-center">
                 <th className="p-5 text-center">Waktu Masuk</th>
                 <th className="p-5 text-center">Nama Pasien</th>
-                <th className="p-5 text-center">Kode Sampel</th>
-                <th className="p-5 text-center">Analis Pengirim</th>
-                <th className="p-5 text-center">Status</th>
+                <th className="p-5 text-center">Jumlah Sampel</th>
+                <th className="p-5 text-center">Prioritas</th>
                 <th className="p-5 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {isLoading ? (
-                <tr>
-                  <td colSpan="6" className="p-10 text-center text-gray-500">Memuat antrean validasi...</td>
-                </tr>
+                <tr><td colSpan="5" className="p-10 text-center text-gray-400">Memuat antrean validasi...</td></tr>
               ) : paginatedPatients.length > 0 ? (
-                paginatedPatients.map((patient) => {
-                  const specimenId = patient.id_specimen ?? patient.specimen_id ?? patient.id;
-                  const displayStatus = resolveLegacyStatus(patient);
-                  const patientName = patient.nama_pasien || patient.name || '-';
-                  const sampleCode = patient.accession_number || patient.kode_sampel || patient.sampleCode || specimenId || '-';
-                  const analystName = patient.analis_pengirim || patient.analyst || '-';
-                  const uploadTime = getQueueTime(patient) || '-';
-                  const priorityInfo = getPriorityBadge(getPriorityLevel(patient));
+                paginatedPatients.map((patient, pIdx) => {
+                  const specimens = patient.specimens || [];
+                  const totalSpecimens = patient.total_specimens || specimens.length;
+                  const uploadTime = patient.earliest_upload || '-';
+                  const priorityInfo = getPriorityBadge(getPriorityLevel(specimens[0] || patient));
+                  const firstSpecimenId = specimens[0]?.id_specimen || null;
 
                   return (
-                  <tr key={specimenId} className="hover:bg-blue-50/30 transition-colors group">
-                    {/* Waktu Masuk */}
+                  <tr key={patient.id_pasien || `patient-${pIdx}`} className="hover:bg-blue-50/30 transition-colors">
                     <td className="p-5 text-center">
-                      <div className="flex flex-col items-center justify-center gap-1.5">
-                        <span className="text-gray-600 font-medium text-xs">{uploadTime}</span>
-                        {priorityInfo && (
-                          <span className={`px-2 py-0.5 text-[9px] font-bold rounded-full uppercase tracking-tighter ${priorityInfo.className}`}>
-                            {priorityInfo.label}
-                          </span>
-                        )}
-                      </div>
+                      <span className="text-gray-600 font-medium">{uploadTime}</span>
                     </td>
-
-                    {/* Pasien */}
                     <td className="p-5 text-center">
-                      <div className="flex items-center justify-center gap-3">
-                        <div>
-                          <p className="font-bold text-gray-800 text-sm">{patientName}</p>
-                        </div>
-                      </div>
+                      <p className="font-bold text-gray-800">{patient.nama_pasien}</p>
                     </td>
-
-                    {/* Kode Sampel */}
                     <td className="p-5 text-center">
-                      <span 
-                        className="text-[10px] font-mono bg-gray-50 px-2 py-0.5 rounded border border-gray-100 text-gray-500 inline-block max-w-[120px] truncate"
-                        title={sampleCode}
-                      >
-                        {sampleCode}
+                      <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">
+                        {totalSpecimens} sampel
                       </span>
                     </td>
-
-                    {/* Analis */}
-                    <td className="p-5 text-center text-sm text-gray-600">
-                      {analystName}
-                    </td>
-
-                    {/* Status (Konsisten dengan Analis) */}
                     <td className="p-5 text-center">
-                      {displayStatus === 'Menunggu Validasi' ? (
-                        <span className="bg-yellow-50 text-yellow-700 px-3 py-1 rounded-full text-xs font-bold border border-yellow-100 inline-flex items-center justify-center w-fit mx-auto">
-                          {displayStatus}
-                        </span>
-                      ) : (
-                        <span className="bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-bold border border-green-100 inline-flex items-center justify-center w-fit mx-auto">
-                          {displayStatus}
+                      {priorityInfo && (
+                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${priorityInfo.className}`}>
+                          {priorityInfo.label}
                         </span>
                       )}
                     </td>
-
-                    {/* Tombol Aksi */}
                     <td className="p-5 text-center">
-                      <button 
-                        onClick={() => handleValidate(specimenId)}
-                        className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
-                      >
-                        Validasi
-                      </button>
+                      <div className="flex items-center justify-center">
+                        <button
+                          onClick={() => handleValidate(firstSpecimenId)}
+                          className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
+                        >
+                          Validasi
+                        </button>
+                      </div>
                     </td>
-
                   </tr>
-                );
+                  );
                 })
               ) : (
-                <tr>
-                  <td colSpan="6" className="p-10 text-center">
-                    <div className="flex flex-col items-center justify-center text-gray-400">
-                      <CheckCircle size={40} className="mb-2 opacity-20" />
-                      <p>Tidak ada antrean validasi.</p>
-                    </div>
-                  </td>
-                </tr>
+                <tr><td colSpan="5" className="p-10 text-center text-gray-400">Tidak ada antrean validasi ditemukan.</td></tr>
               )}
             </tbody>
           </table>

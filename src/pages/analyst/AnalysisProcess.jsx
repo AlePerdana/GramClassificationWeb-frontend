@@ -9,6 +9,7 @@ import {
   Hand, MousePointer2, RefreshCw
 } from 'lucide-react';
 import { APP_CONFIG } from '../../utils/constant';
+import NgrokImage from '../../components/common/NgrokImage';
 
 const AnalysisProcess = () => {
   const { id } = useParams();
@@ -26,6 +27,7 @@ const AnalysisProcess = () => {
 
   // --- STATE ---
   const [patient, setPatient] = useState(null);
+  const [patientDbId, setPatientDbId] = useState(null);
   const [isPatientLoading, setIsPatientLoading] = useState(true);
   const [images, setImages] = useState([]);
   const [uploadedSpecimens, setUploadedSpecimens] = useState([]);
@@ -108,6 +110,13 @@ const AnalysisProcess = () => {
     setSpecimenMeta(prev => ({ ...prev, accession_number: id }));
   }, []);
 
+  // Auto-generate accession number on mount if empty
+  useEffect(() => {
+    if (!specimenMeta.accession_number) {
+      generateAccessionNumber();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const readImageResolution = useCallback(async (file) => {
     if (!file) return '';
     if (typeof createImageBitmap === 'function') {
@@ -137,13 +146,15 @@ const AnalysisProcess = () => {
   }, []);
 
   const toAbsoluteUploadUrl = useCallback((path) => {
-    const raw = String(path || '').trim();
+    let raw = String(path || '').trim();
     if (!raw) return '';
     if (/^https?:\/\//i.test(raw)) {
-      if (API_HOST.startsWith('https://') && /^http:\/\//i.test(raw)) {
-        return appendNgrokSkip(raw.replace(/^http:\/\//i, 'https://'));
+      try {
+        const urlObj = new URL(raw);
+        raw = urlObj.pathname + urlObj.search;
+      } catch (e) {
+        raw = raw.replace(/^https?:\/\/[^\/]+/, '');
       }
-      return appendNgrokSkip(raw);
     }
     const normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '');
     return appendNgrokSkip(`${API_HOST}/${normalized}`);
@@ -190,10 +201,85 @@ const AnalysisProcess = () => {
 
   // --- HANDLERS ---
 
+  const [rawClassifications, setRawClassifications] = useState(null);
+
   useEffect(() => {
-    const fetchPatientData = async () => {
+    const fetchInitialData = async () => {
       if (!id) return;
       setIsPatientLoading(true);
+      try {
+        // Try fetching as specimen details first (for revision)
+        const specResponse = await fetch(`${API_HOST}/api/doctor/specimen-details/${id}`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...authService.getAuthorizationHeader(),
+          },
+        });
+
+        if (specResponse.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
+
+        if (specResponse.ok) {
+          const result = await specResponse.json();
+          const specimenData = result?.data || result;
+          
+          if (specimenData && specimenData.patient) {
+            setPatientDbId(specimenData.patient_id);
+            const patientData = {
+              id_pasien: specimenData.patient.id_pasien || specimenData.patient.patient_id || '-',
+              nama_lengkap: specimenData.patient.nama || specimenData.patient.name || '-',
+              nik: specimenData.patient.nik || '',
+              jenis_kelamin: specimenData.patient.jenis_kelamin || specimenData.patient.gender || '-',
+              tanggal_lahir: specimenData.patient.tanggal_lahir || specimenData.patient.birth_date || null,
+              no_telepon: specimenData.patient.no_telepon || '',
+              alamat: specimenData.patient.alamat || '',
+            };
+            setPatient(patientData);
+            
+            // Map existing specimen metadata
+            setSpecimenMeta({
+              accession_number: specimenData.accession_number || '',
+              specimen_type: specimenData.specimen_type || '',
+              doctor_sender: specimenData.doctor_sender || '',
+              clinical_diagnosis: specimenData.clinical_diagnosis || '',
+              collected_at: specimenData.collected_at ? specimenData.collected_at.slice(0, 16) : '',
+              received_at: specimenData.received_at ? specimenData.received_at.slice(0, 16) : '',
+              microscope_type: specimenData.microscope_type || '',
+              magnification: specimenData.magnification || '',
+              analyst_note: specimenData.analyst_note || '',
+            });
+
+            // Map images
+            const specs = specimenData.all_specimens && specimenData.all_specimens.length > 0
+              ? specimenData.all_specimens
+              : [specimenData];
+            
+            const restoredImages = specs.map(s => ({
+              previewUrl: toAbsoluteUploadUrl(s.main_image_url || s.main_image_path || s.file_path || s.annotated_image_url || ''),
+              specimenId: s.specimen_id || s.id,
+              fileName: s.fileName || `specimen-${s.specimen_id || s.id}`,
+              filePath: s.main_image_path || s.file_path || s.main_image_url || '',
+            }));
+            
+            setImages(restoredImages);
+            setUploadedSpecimens(specs.map(s => ({ id: s.specimen_id || s.id })));
+            
+            if (Array.isArray(specimenData.classifications)) {
+              setRawClassifications(specimenData.classifications);
+            }
+            setIsPatientLoading(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch specimen details, falling back to patient details:', err);
+      }
+
+      // Fallback: load patient data directly (for new analysis)
       try {
         const response = await fetch(`${API_BASE_URL}/patients/${id}`, {
           method: 'GET',
@@ -211,7 +297,16 @@ const AnalysisProcess = () => {
 
         if (response.ok) {
           const data = await response.json();
-          setPatient(data);
+          setPatientDbId(data.id);
+          setPatient({
+            id_pasien: data.id_pasien || data.patient_id || data.id,
+            nama_lengkap: data.nama || data.name || data.nama_lengkap,
+            nik: data.nik || '',
+            jenis_kelamin: data.jenis_kelamin || data.gender || '-',
+            tanggal_lahir: data.tanggal_lahir || data.birth_date || null,
+            no_telepon: data.no_telepon || '',
+            alamat: data.alamat || '',
+          });
         } else {
           setPatient(null);
           console.error('Gagal mengambil data pasien');
@@ -224,8 +319,92 @@ const AnalysisProcess = () => {
       }
     };
 
-    fetchPatientData();
-  }, [API_BASE_URL, id, navigate]);
+    fetchInitialData();
+  }, [API_BASE_URL, API_HOST, id, navigate, toAbsoluteUploadUrl]);
+
+  useEffect(() => {
+    if (!rawClassifications || !images.length) return;
+    const activeImage = images[activeImgIdx];
+    if (!activeImage) return;
+    const activeMeta = imageMeta[activeImgIdx];
+    if (!activeMeta) return;
+
+    const specId = activeImage.specimenId;
+    const activeClassifications = rawClassifications.filter(
+      (c) => (c.specimen_id || c.specimen || c.specimen_id_id) === specId
+    );
+
+    if (activeClassifications.length > 0 && (!rois[activeImgIdx] || rois[activeImgIdx].length === 0)) {
+      const clientW = activeMeta.clientW;
+      const clientH = activeMeta.clientH;
+      const naturalW = activeMeta.naturalW;
+      const naturalH = activeMeta.naturalH;
+
+      if (clientW && clientH && naturalW && naturalH) {
+        const imgRatio = naturalW / naturalH;
+        const containerRatio = clientW / clientH;
+
+        let renderW;
+        let renderH;
+        let offsetX = 0;
+        let offsetY = 0;
+
+        if (imgRatio > containerRatio) {
+          renderW = clientW;
+          renderH = clientW / imgRatio;
+          offsetY = (clientH - renderH) / 2;
+        } else {
+          renderH = clientH;
+          renderW = clientH * imgRatio;
+          offsetX = (clientW - renderW) / 2;
+        }
+
+        const scaleX = renderW / naturalW;
+        const scaleY = renderH / naturalH;
+
+        const converted = activeClassifications.map((item, index) => {
+          const bbox = Array.isArray(item.roi_bbox) ? item.roi_bbox : [0, 0, 0, 0];
+          const x1 = bbox[0];
+          const y1 = bbox[1];
+          const x2 = bbox[2];
+          const y2 = bbox[3];
+
+          const w = x2 - x1;
+          const h = y2 - y1;
+
+          const displayX = x1 * scaleX + offsetX;
+          const displayY = y1 * scaleY + offsetY;
+          const displayW = w * scaleX;
+          const displayH = h * scaleY;
+
+          return {
+            id: item.id || `classification-${index}`,
+            x: displayX,
+            y: displayY,
+            width: displayW,
+            height: displayH,
+            w: displayW,
+            h: displayH,
+            status: 'done',
+            aiGram: item.classification_gram || item.ai_gram || item.validation_gram,
+            classification_gram: item.classification_gram || item.ai_gram || item.validation_gram,
+            aiShape: item.classification_bentuk || item.validation_bentuk,
+            classification_bentuk: item.classification_bentuk || item.validation_bentuk,
+            validation_bentuk: item.validation_bentuk,
+            validation_gram: item.validation_gram,
+            confidence: item.confidence || item.classification_confidence || 1,
+            source: item.roi_source || 'manual',
+            label: item.roi_source === 'auto' ? 'Auto' : 'Manual',
+          };
+        });
+
+        setRois((prev) => ({
+          ...prev,
+          [activeImgIdx]: converted,
+        }));
+      }
+    }
+  }, [rawClassifications, activeImgIdx, imageMeta, images, rois]);
 
   useEffect(() => {
     let cancelled = false;
@@ -383,6 +562,11 @@ const AnalysisProcess = () => {
       return;
     }
 
+    // Pastikan ID Spesimen diisi
+    if (!(specimenMeta.accession_number || '').trim()) {
+      generateAccessionNumber();
+    }
+
     setIsUploading(true);
 
     try {
@@ -390,7 +574,7 @@ const AnalysisProcess = () => {
 
       for (const file of files) {
         const formData = new FormData();
-        formData.append('patient_id', id);
+        formData.append('patient_id', patientDbId || id);
         formData.append('accession_number', specimenMeta.accession_number || '');
         formData.append('specimen_type', specimenMeta.specimen_type || '');
         formData.append('doctor_sender', specimenMeta.doctor_sender || '');
@@ -1131,7 +1315,6 @@ const AnalysisProcess = () => {
     const specimenId = imageToRemove?.specimenId;
 
     if (specimenId) {
-      await deleteOrphanedSpecimen(specimenId);
       setUploadedSpecimens((prev) => prev.filter((s) => (s.id ?? s.specimen_id) !== specimenId));
       cleanupData.current.uploadedSpecimens = cleanupData.current.uploadedSpecimens.filter((s) => (s.id ?? s.specimen_id) !== specimenId);
     }
@@ -1309,7 +1492,7 @@ const AnalysisProcess = () => {
               <p className="text-sm text-slate-500 mt-2">
                 {status === 'auto_detecting'
                   ? 'Mencari dan mendeteksi bakteri secara otomatis. Mohon tunggu.'
-                  : `Mengekstrak ${currentRois.length} gambar dan menjalankan klasifikasi.`}
+                  : `Mengekstrak ${totalRois} gambar dan menjalankan klasifikasi.`}
               </p>
 
               <div className="w-full h-1.5 bg-slate-100 rounded-full mt-5 overflow-hidden relative">
@@ -1416,14 +1599,15 @@ const AnalysisProcess = () => {
               </h3>
               <div className="space-y-4">
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 mb-1">ID Spesimen / Accession Number</p>
+                  <p className="text-xs font-semibold text-gray-500 mb-1">ID Spesimen / Accession Number <span className="text-red-500">*</span></p>
                   <div className="flex gap-2">
                     <input
                       type="text"
+                      required
                       value={specimenMeta.accession_number}
-                      onChange={(e) => setSpecimenMeta((prev) => ({ ...prev, accession_number: e.target.value }))}
+                      onChange={(e) => setSpecimenMeta((prev) => ({ ...prev, accession_number: e.target.value.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 30) }))}
                       placeholder="Contoh: ACC-2026-001"
-                      className="flex-1 text-xs px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 outline-none"
+                      className={`flex-1 text-xs px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-100 outline-none ${!specimenMeta.accession_number?.trim() ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}
                     />
                     <button
                       type="button"
@@ -1547,7 +1731,7 @@ const AnalysisProcess = () => {
                       }}
                       className="inline-block relative"
                     >
-                      <img
+                      <NgrokImage
                         ref={imageElementRef}
                         src={images[activeImgIdx]?.previewUrl}
                         alt="Sample"
@@ -1561,7 +1745,22 @@ const AnalysisProcess = () => {
                       />
 
                       {/* --- ROI RENDER LAYER --- */}
-                      {currentRois.map((box, idx) => (
+                      {currentRois.map((box, idx) => {
+                        const isDone = box.status === 'done';
+                        const gramLabel = box.aiGram || box.classification_gram || '';
+                        const isPositive = gramLabel === 'Positif';
+                        const isNegative = gramLabel === 'Negatif';
+
+                        let borderColor = 'border-blue-400';
+                        if (isDone) {
+                          borderColor = isPositive ? 'border-purple-500' : isNegative ? 'border-pink-500' : 'border-green-400';
+                        } else if (mode === 'remove') {
+                          borderColor = 'border-red-500';
+                        } else if (box.label === 'Auto') {
+                          borderColor = 'border-green-400';
+                        }
+
+                        return (
                         <div
                           key={idx}
                           onMouseEnter={() => setHoveredRoiIndex(idx)}
@@ -1572,14 +1771,7 @@ const AnalysisProcess = () => {
                               deleteRoi(idx);
                             }
                           }}
-                          className={`absolute border-2 ${mode === 'remove'
-                              ? 'cursor-pointer hover:bg-red-500/40 border-red-500'
-                              : hoveredRoiIndex === idx
-                                ? 'border-red-500 bg-red-500/20'
-                                : box.label === 'Auto'
-                                  ? 'border-green-400'
-                                  : 'border-blue-400'
-                            } transition-colors`}
+                          className={`absolute border-2 transition-colors ${borderColor}`}
                           style={{
                             left: box.x,
                             top: box.y,
@@ -1587,8 +1779,17 @@ const AnalysisProcess = () => {
                             height: box.height ?? box.h,
                             pointerEvents: 'auto'
                           }}
-                        />
-                      ))}
+                        >
+                          {isDone && gramLabel && (
+                            <span className={`absolute top-0 left-0 -translate-y-full px-1.5 py-0.5 text-[9px] font-bold text-white rounded-t whitespace-nowrap ${
+                              isPositive ? 'bg-purple-600' : isNegative ? 'bg-pink-600' : 'bg-gray-600'
+                            }`}>
+                              G{isPositive ? '+' : '-'} {(box.confidence * 100).toFixed(0)}%
+                            </span>
+                          )}
+                        </div>
+                        );
+                      })}
 
                       {isInteracting && mode === 'manual_crop' && currentBox && (
                         <div
@@ -1689,7 +1890,7 @@ const AnalysisProcess = () => {
                         >
                           <X size={12} strokeWidth={3} />
                         </button>
-                        <img src={item.previewUrl} className="w-full h-full object-cover" alt="Thumb" />
+                        <NgrokImage src={item.previewUrl} className="w-full h-full object-cover" alt="Thumb" />
                       </div>
                     ))}
                     <label className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 text-gray-400 hover:text-blue-500 transition-colors flex-shrink-0">
@@ -1715,19 +1916,22 @@ const AnalysisProcess = () => {
                     <div className="bg-green-50 p-4 rounded-lg border border-green-100 text-center mb-4">
                       <CheckCircle size={32} className="text-green-600 mx-auto mb-2" />
                       <p className="font-bold text-green-800">Analisis Selesai</p>
-                      <p className="text-xs text-green-600">Hasil siap divalidasi</p>
+                      <p className="text-xs text-green-600">{totalDoneCount} objek terdeteksi — lihat kotak berwarna di gambar</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 mb-4">
-                      <div className="bg-blue-50 p-3 rounded-lg text-center">
-                        <span className="block text-[10px] text-blue-500 font-bold">GRAM POSITIF</span>
-                        <span className="text-xl font-bold text-blue-700">{positiveCount}</span>
+                      <div className="bg-purple-50 p-3 rounded-lg text-center">
+                        <span className="block text-[10px] text-purple-500 font-bold">GRAM POSITIF (G+)</span>
+                        <span className="text-xl font-bold text-purple-700">{positiveCount}</span>
                       </div>
-                      <div className="bg-red-50 p-3 rounded-lg text-center">
-                        <span className="block text-[10px] text-red-500 font-bold">GRAM NEGATIF</span>
-                        <span className="text-xl font-bold text-red-700">{negativeCount}</span>
+                      <div className="bg-pink-50 p-3 rounded-lg text-center">
+                        <span className="block text-[10px] text-pink-500 font-bold">GRAM NEGATIF (G-)</span>
+                        <span className="text-xl font-bold text-pink-700">{negativeCount}</span>
                       </div>
                     </div>
+                    <p className="text-xs text-slate-500 text-center mb-4">
+                      Total: {totalDoneCount} bakteri | {images.length} spesimen
+                    </p>
                     <p className="text-xs text-slate-500 text-center mb-4">Total hasil: {totalDoneCount}</p>
 
                     <div className="space-y-2">
@@ -1892,7 +2096,7 @@ const AnalysisProcess = () => {
                 }}
                 className="relative inline-block"
               >
-                <img
+                <NgrokImage
                   ref={modalImageRef}
                   src={images[activeImgIdx]?.previewUrl}
                   alt="Full Preview"

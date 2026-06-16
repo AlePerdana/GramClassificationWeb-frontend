@@ -31,8 +31,8 @@ const joinApiUrl = (path) => {
     try {
       const urlObj = new URL(raw);
       raw = urlObj.pathname + urlObj.search;
-    } catch (e) {
-      raw = raw.replace(/^https?:\/\/[^\/]+/, '');
+    } catch {
+      raw = raw.replace(/^https?:\/\/[^/]+/, '');
     }
   }
   const normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '');

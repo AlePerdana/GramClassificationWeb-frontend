@@ -5,19 +5,6 @@ import {
 } from 'lucide-react';
 import { ModelService } from '../../service/modelService';
 
-// --- DATA GABUNGAN ---
-const initialYoloModels = [
-  { id: 101, version: 'YOLOv8-Nano-Base', date: '10 Jan 2026', accuracy: 88.5, f1Score: 87.2, inferenceTime: 0.8, delta: { acc: 0, f1: 0, time: 0 }, status: 'Arsip' },
-  { id: 102, version: 'YOLOv8-Nano-V2', date: '25 Jan 2026', accuracy: 92.1, f1Score: 91.5, inferenceTime: 0.6, delta: { acc: 3.6, f1: 4.3, time: -0.2 }, status: 'Aktif' },
-  { id: 103, version: 'YOLOv8-Medium-Exp', date: '15 Feb 2026', accuracy: 94.8, f1Score: 94.1, inferenceTime: 1.5, delta: { acc: 2.7, f1: 2.6, time: 0.9 }, status: 'Arsip' },
-];
-
-const initialCnnModels = [
-  { id: 201, version: 'ResNet50-Microbio', date: '05 Jan 2026', accuracy: 88.0, f1Score: 87.5, inferenceTime: 2.5, delta: { acc: 0, f1: 0, time: 0 }, status: 'Arsip' },
-  { id: 202, version: 'GramVIT-B1', date: '20 Jan 2026', accuracy: 96.5, f1Score: 95.8, inferenceTime: 1.2, delta: { acc: 8.5, f1: 8.3, time: -1.3 }, status: 'Aktif' },
-  { id: 203, version: 'Custom-CNN-Lite', date: '22 Jan 2026', accuracy: 85.2, f1Score: 84.8, inferenceTime: 0.4, delta: { acc: -11.3, f1: -11.0, time: -0.8 }, status: 'Arsip' },
-];
-
 const modelService = new ModelService();
 
 const formatDate = (isoString) => {
@@ -25,13 +12,6 @@ const formatDate = (isoString) => {
   const d = new Date(isoString);
   if (Number.isNaN(d.getTime())) return String(isoString);
   return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-};
-
-const normalizeStatus = (status) => {
-  const s = String(status || '').toLowerCase();
-  if (s.includes('aktif') || s.includes('active')) return 'Aktif';
-  if (s.includes('arsip') || s.includes('archive')) return 'Arsip';
-  return status || 'Arsip';
 };
 
 const mapApiModelToUiModel = (apiModel) => {
@@ -50,15 +30,15 @@ const mapApiModelToUiModel = (apiModel) => {
     id: apiModel?.id,
     version: displayName,
     date: formatDate(apiModel?.created_at),
-    accuracy: Number(apiModel?.accuracy ?? 0),
-    f1Score: Number(apiModel?.f1_score ?? 0),
+    accuracy: Number(((apiModel?.accuracy ?? 0) * 100).toFixed(2)),
+    f1Score: Number(((apiModel?.f1_score ?? 0) * 100).toFixed(2)),
     inferenceTime: Number(inferenceTime ?? 0),
     delta: {
-      acc: Number(apiModel?.delta_acc ?? 0),
-      f1: Number(apiModel?.delta_f1 ?? 0),
+      acc: Number(((apiModel?.delta_acc ?? 0) * 100).toFixed(2)),
+      f1: Number(((apiModel?.delta_f1 ?? 0) * 100).toFixed(2)),
       time: Number(apiModel?.delta_time ?? 0),
     },
-    status: normalizeStatus(apiModel?.status),
+    status: apiModel?.is_active ? 'Aktif' : 'Arsip',
   };
 };
 
@@ -106,12 +86,13 @@ const getJobBadgeClass = (status) => {
 
 const ModelManagement = () => {
   const [activeTab, setActiveTab] = useState('detection');
-  const [yoloModels, setYoloModels] = useState(initialYoloModels);
-  const [cnnModels, setCnnModels] = useState(initialCnnModels);
+  const [yoloModels, setYoloModels] = useState([]);
+  const [cnnModels, setCnnModels] = useState([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const itemsPerPage = 5;
+  const [sortBy, setSortBy] = useState('f1');
 
   const [isRetrainModalOpen, setIsRetrainModalOpen] = useState(false);
   const [isRetrainSubmitting, setIsRetrainSubmitting] = useState(false);
@@ -131,6 +112,14 @@ const ModelManagement = () => {
     type: 'success',
     message: '',
   });
+  // Upload model state
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadModelName, setUploadModelName] = useState('');
+  const [uploadModelType, setUploadModelType] = useState('Gram Classification');
+  const [uploadVersion, setUploadVersion] = useState('1.0');
+  const [isUploading, setIsUploading] = useState(false);
+  const [isBenchmarking, setIsBenchmarking] = useState(false);
+
 
   const [trainingJobs, setTrainingJobs] = useState([]);
   const [isLoadingTrainingJobs, setIsLoadingTrainingJobs] = useState(false);
@@ -165,6 +154,18 @@ const ModelManagement = () => {
 
   useEffect(() => {
     fetchTrainingJobs();
+
+    // Fetch retrain config
+    const fetchConfig = async () => {
+      try {
+        const config = await modelService.getRetrainConfig();
+        setAutoRetrain(config?.auto_retrain_enabled ?? false);
+      } catch {
+        // Non-critical
+      }
+    };
+    fetchConfig();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -189,7 +190,7 @@ const ModelManagement = () => {
       setIsLoadingModels(true);
       setModelsError('');
       try {
-        const task_type = activeTab === 'detection' ? 'Detection' : 'Classification';
+        const task_type = activeTab === 'detection' ? 'Detection' : 'Gram Classification';
         const result = await modelService.getModelList({ task_type });
         const mapped = (result?.data || []).map(mapApiModelToUiModel);
 
@@ -225,7 +226,18 @@ const ModelManagement = () => {
     setCurrentPage(1);
   }, [activeTab]);
 
-  const reversedModels = [...currentModels].reverse();
+  // Sort models
+  const sortedModels = [...currentModels].sort((a, b) => {
+    if (sortBy === 'accuracy') return (b.accuracy || 0) - (a.accuracy || 0);
+    if (sortBy === 'f1') return (b.f1Score || 0) - (a.f1Score || 0);
+    if (sortBy === 'average') {
+      const avgA = ((a.accuracy || 0) + (a.f1Score || 0)) / 2;
+      const avgB = ((b.accuracy || 0) + (b.f1Score || 0)) / 2;
+      return avgB - avgA;
+    }
+    return 0;
+  });
+  const reversedModels = sortedModels; // Already sorted descending, no reverse needed
   const totalPages = Math.max(1, Math.ceil(reversedModels.length / itemsPerPage));
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedModels = reversedModels.slice(startIndex, startIndex + itemsPerPage);
@@ -339,20 +351,142 @@ const ModelManagement = () => {
   };
 
   // Handler Aksi Tabel
-  const handleActivateModel = (id) => {
-    if(window.confirm('Ganti model AI yang digunakan di produksi?')) {
-      if (activeTab === 'detection') {
-        setYoloModels(yoloModels.map(m => ({ ...m, status: m.id === id ? 'Aktif' : 'Arsip' })));
-      } else {
-        setCnnModels(cnnModels.map(m => ({ ...m, status: m.id === id ? 'Aktif' : 'Arsip' })));
-      }
+  const handleActivateModel = async (id) => {
+    if (!window.confirm('Ganti model AI yang digunakan di produksi?')) return;
+    try {
+      const res = await modelService.activateModel(id);
+      showToast('success', res?.message || 'Model berhasil diaktifkan.');
+      // Refresh model list
+      const task_type = activeTab === 'detection' ? 'Detection' : 'Gram Classification';
+      const result = await modelService.getModelList({ task_type });
+      const mapped = (result?.data || []).map(mapApiModelToUiModel);
+      if (activeTab === 'detection') setYoloModels(mapped);
+      else setCnnModels(mapped);
+    } catch (err) {
+      showToast('error', err?.message || 'Gagal mengaktifkan model.');
     }
   };
 
-  const handleDeleteModel = (id) => {
-    if(window.confirm('Hapus model ini dari sistem?')) {
-      if (activeTab === 'detection') setYoloModels(yoloModels.filter(m => m.id !== id));
-      else setCnnModels(cnnModels.filter(m => m.id !== id));
+
+  const handleUploadSubmit = async () => {
+    if (!uploadFile) {
+      showToast('error', 'Pilih file model terlebih dahulu.');
+      return;
+    }
+    if (!uploadModelName.trim()) {
+      showToast('error', 'Nama model wajib diisi.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    formData.append('model_name', uploadModelName.trim());
+    formData.append('model_type', uploadModelType);
+    formData.append('version', uploadVersion.trim() || '1.0');
+
+    setIsUploading(true);
+    try {
+      const res = await modelService.uploadModel(formData);
+      showToast('success', res?.message || 'Model berhasil diunggah.');
+      setUploadFile(null);
+      setUploadModelName('');
+      setUploadVersion('1.0');
+
+      // Refresh model list
+      const task_type = activeTab === 'detection' ? 'Detection' : 'Gram Classification';
+      const result = await modelService.getModelList({ task_type });
+      const mapped = (result?.data || []).map(mapApiModelToUiModel);
+      if (activeTab === 'detection') setYoloModels(mapped);
+      else setCnnModels(mapped);
+    } catch (err) {
+      showToast('error', err?.message || 'Gagal mengunggah model.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+  const handleBenchmarkActiveCnn = async () => {
+    if (!window.confirm('Jalankan benchmark untuk model klasifikasi yang aktif?')) return;
+    setIsBenchmarking(true);
+    try {
+      const res = await modelService.benchmarkActive();
+      showToast('success', res?.message || 'Benchmark model aktif selesai.');
+      const task_type = activeTab === 'detection' ? 'Detection' : 'Gram Classification';
+      const result = await modelService.getModelList({ task_type });
+      const mapped = (result?.data || []).map(mapApiModelToUiModel);
+      if (activeTab === 'detection') setYoloModels(mapped);
+      else setCnnModels(mapped);
+    } catch (err) {
+      showToast('error', err?.message || 'Gagal menjalankan benchmark.');
+    } finally {
+      setIsBenchmarking(false);
+    }
+  };
+
+  const handleBenchmarkAllCnn = async () => {
+    if (!window.confirm('Jalankan benchmark untuk semua model klasifikasi? Ini mungkin memakan waktu beberapa saat.')) return;
+    setIsBenchmarking(true);
+    try {
+      const res = await modelService.benchmarkAll();
+      showToast('success', res?.message || 'Benchmark selesai untuk semua model.');
+      // Refresh model list
+      const task_type = activeTab === 'detection' ? 'Detection' : 'Gram Classification';
+      const result = await modelService.getModelList({ task_type });
+      const mapped = (result?.data || []).map(mapApiModelToUiModel);
+      if (activeTab === 'detection') setYoloModels(mapped);
+      else setCnnModels(mapped);
+    } catch (err) {
+      showToast('error', err?.message || 'Gagal menjalankan benchmark.');
+    } finally {
+      setIsBenchmarking(false);
+    }
+  };
+
+  const handleBenchmarkYolo = async (modelId) => {
+    const label = modelId ? `model #${modelId}` : 'model YOLO aktif';
+    if (!window.confirm(`Jalankan benchmark untuk ${label}?`)) return;
+    setIsBenchmarking(true);
+    try {
+      const res = await modelService.benchmarkYolo(modelId);
+      showToast('success', `YOLO benchmark selesai: mAP50=${(res.map50*100).toFixed(1)}%, mAP50-95=${(res.map50_95*100).toFixed(1)}%`);
+      const result = await modelService.getModelList({ task_type: 'Detection' });
+      const mapped = (result?.data || []).map(mapApiModelToUiModel);
+      setYoloModels(mapped);
+    } catch (err) {
+      showToast('error', err?.message || 'Gagal menjalankan benchmark YOLO.');
+    } finally {
+      setIsBenchmarking(false);
+    }
+  };
+
+  const handleBenchmarkAllYolo = async () => {
+    if (!window.confirm('Jalankan benchmark untuk semua model YOLO? Ini mungkin memakan waktu beberapa saat.')) return;
+    setIsBenchmarking(true);
+    try {
+      const res = await modelService.benchmarkAllYolo();
+      showToast('success', res?.message || 'Benchmark semua model YOLO selesai.');
+      const result = await modelService.getModelList({ task_type: 'Detection' });
+      const mapped = (result?.data || []).map(mapApiModelToUiModel);
+      setYoloModels(mapped);
+    } catch (err) {
+      showToast('error', err?.message || 'Gagal menjalankan benchmark semua model YOLO.');
+    } finally {
+      setIsBenchmarking(false);
+    }
+  };
+
+  const handleDeleteModel = async (id) => {
+    if (!window.confirm('Hapus model ini dari sistem?')) return;
+    try {
+      const res = await modelService.deleteModel(id);
+      showToast('success', res?.message || 'Model berhasil dihapus.');
+      // Refresh model list
+      const task_type = activeTab === 'detection' ? 'Detection' : 'Gram Classification';
+      const result = await modelService.getModelList({ task_type });
+      const mapped = (result?.data || []).map(mapApiModelToUiModel);
+      if (activeTab === 'detection') setYoloModels(mapped);
+      else setCnnModels(mapped);
+    } catch (err) {
+      showToast('error', err?.message || 'Gagal menghapus model.');
     }
   };
 
@@ -558,23 +692,101 @@ const ModelManagement = () => {
               <div className="mt-1 text-xs text-gray-500 flex justify-between">F1-Score: <span className="font-bold text-indigo-700">{bestModel?.f1Score}%</span></div>
             </div>
             <div className="bg-white p-5 rounded-xl shadow-md border border-gray-200 border-l-4 border-l-orange-500">
-              <div className="flex items-center gap-2 mb-2"><Activity size={18} className="text-orange-600"/><h3 className="font-bold text-gray-700 text-sm">Rata-rata Inferensi</h3></div>
-              <p className="text-lg font-black text-gray-800">{activeModel?.inferenceTime} <span className="text-xs font-semibold text-gray-500">s/citra</span></p>
-              <div className="mt-1 text-[10px] font-medium text-gray-400">*Batas: {activeTab === 'detection' ? '< 1.5s' : '< 2.0s'}</div>
+              <div className="flex items-center gap-2 mb-2"><Activity size={18} className="text-orange-600"/><h3 className="font-bold text-gray-700 text-sm">Rata-rata</h3></div>
+              <p className="text-lg font-black text-gray-800">{((activeModel?.accuracy || 0 + activeModel?.f1Score || 0) / 2).toFixed(1)}<span className="text-xs font-semibold text-gray-500">%</span></p>
+              <div className="mt-1 text-[10px] font-medium text-gray-400">Akurasi + F1-Score</div>
             </div>
           </div>
 
           {/* Tabel Komparasi */}
           <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
-            <div className="p-4 border-b border-gray-100 bg-gray-50"><h3 className="font-bold text-gray-800">Daftar Versi Model</h3></div>
+            <div className="p-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between flex-wrap gap-2">
+              <h3 className="font-bold text-gray-800">Daftar Versi Model</h3>
+              <div className="flex items-center gap-2">
+                {activeTab === 'detection' ? (
+                  <select
+                    value={sortBy}
+                    onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-gray-200 text-gray-700 cursor-pointer"
+                  >
+                    <option value="f1">Urutkan: mAP50-95</option>
+                    <option value="accuracy">Urutkan: mAP50</option>
+                    <option value="average">Urutkan: Rata-rata</option>
+                  </select>
+                ) : (
+                  <select
+                    value={sortBy}
+                    onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-gray-200 text-gray-700 cursor-pointer"
+                  >
+                    <option value="f1">Urutkan: F1-Score</option>
+                    <option value="accuracy">Urutkan: Akurasi</option>
+                    <option value="average">Urutkan: Rata-rata</option>
+                  </select>
+                )}
+                {activeTab === 'detection' ? (
+                  <>
+                    <button
+                      onClick={() => handleBenchmarkYolo()}
+                      disabled={isBenchmarking}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                      title="Benchmark model YOLO aktif"
+                    >
+                      <BarChart2 size={14} className={isBenchmarking ? 'animate-pulse' : ''} />
+                      {isBenchmarking ? 'Menguji...' : 'Benchmark Aktif'}
+                    </button>
+                    <button
+                      onClick={handleBenchmarkAllYolo}
+                      disabled={isBenchmarking}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                      title="Benchmark semua model YOLO"
+                    >
+                      <BarChart2 size={14} className={isBenchmarking ? 'animate-pulse' : ''} />
+                      {isBenchmarking ? 'Menguji...' : 'Benchmark Semua'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleBenchmarkActiveCnn}
+                      disabled={isBenchmarking}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                      title="Benchmark model klasifikasi aktif"
+                    >
+                      <BarChart2 size={14} className={isBenchmarking ? 'animate-pulse' : ''} />
+                      {isBenchmarking ? 'Menguji...' : 'Benchmark Aktif'}
+                    </button>
+                    <button
+                      onClick={handleBenchmarkAllCnn}
+                      disabled={isBenchmarking}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                      title="Benchmark semua model klasifikasi"
+                    >
+                      <BarChart2 size={14} className={isBenchmarking ? 'animate-pulse' : ''} />
+                      {isBenchmarking ? 'Menguji...' : 'Benchmark Semua'}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-center border-collapse">
                 <thead>
                   <tr className="bg-white border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wide">
                     <th className="p-4 text-left pl-6">Versi Model</th>
-                    <th className="p-4 text-center">Akurasi</th>
-                    <th className="p-4 text-center">F1-Score</th>
-                    <th className="p-4 text-center">Inferensi</th>
+                    {activeTab === 'detection' ? (
+                      <>
+                        <th className="p-4 text-center">mAP50</th>
+                        <th className="p-4 text-center">mAP50-95</th>
+                        <th className="p-4 text-center">Precision</th>
+                        <th className="p-4 text-center">Recall</th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="p-4 text-center">Akurasi</th>
+                        <th className="p-4 text-center">F1-Score</th>
+                      </>
+                    )}
                     <th className="p-4 text-center">Status</th>
                     <th className="p-4 text-center">Aksi</th>
                   </tr>
@@ -595,9 +807,19 @@ const ModelManagement = () => {
                         </div>
                         <div className="text-[10px] text-gray-400 mt-0.5"><Clock size={10} className="inline mr-1"/>{model.date}</div>
                       </td>
-                      <td className="p-4 text-center whitespace-nowrap"><span className="font-bold">{model.accuracy}%</span><MetricDelta value={model.delta.acc}/></td>
-                      <td className="p-4 text-center whitespace-nowrap"><span className="font-bold">{model.f1Score}%</span><MetricDelta value={model.delta.f1}/></td>
-                      <td className="p-4 text-center whitespace-nowrap"><span className="font-bold">{model.inferenceTime}s</span><MetricDelta value={model.delta.time} isTime/></td>
+                      {activeTab === 'detection' ? (
+                        <>
+                          <td className="p-4 text-center whitespace-nowrap"><span className="font-bold">{model.accuracy}%</span><MetricDelta value={model.delta.acc}/></td>
+                          <td className="p-4 text-center whitespace-nowrap"><span className="font-bold">{model.f1Score}%</span><MetricDelta value={model.delta.f1}/></td>
+                          <td className="p-4 text-center whitespace-nowrap"><span className="font-bold">{model.accuracy}%</span></td>
+                          <td className="p-4 text-center whitespace-nowrap"><span className="font-bold">{model.accuracy}%</span></td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="p-4 text-center whitespace-nowrap"><span className="font-bold">{model.accuracy}%</span><MetricDelta value={model.delta.acc}/></td>
+                          <td className="p-4 text-center whitespace-nowrap"><span className="font-bold">{model.f1Score}%</span><MetricDelta value={model.delta.f1}/></td>
+                        </>
+                      )}
                       <td className="p-4 text-center">
                         <span className={`px-2 py-1 rounded text-[10px] font-bold ${model.status === 'Aktif' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
                           {model.status}
@@ -605,6 +827,9 @@ const ModelManagement = () => {
                       </td>
                       <td className="p-4 text-center">
                         <div className="flex items-center justify-center gap-2">
+                          {activeTab === 'detection' && (
+                            <button onClick={() => handleBenchmarkYolo(model.id)} disabled={isBenchmarking} className="p-1.5 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded disabled:opacity-50" title="Benchmark Model Ini"><BarChart2 size={16}/></button>
+                          )}
                           {model.status !== 'Aktif' && (
                             <button onClick={() => handleActivateModel(model.id)} className="p-1.5 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded" title="Jadikan Aktif"><Check size={16}/></button>
                           )}
@@ -648,13 +873,78 @@ const ModelManagement = () => {
           {/* Panel Upload */}
           <div className="bg-white p-5 rounded-xl shadow-md border border-gray-200">
             <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><FileUp size={18} className="text-slate-500"/> Upload Model Baru</h3>
-            <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center text-center cursor-pointer hover:bg-gray-50 transition-colors">
-              <Upload size={32} className="text-gray-400 mb-3" />
-              <p className="text-sm font-bold text-gray-700">Drag & drop file model</p>
-              <p className="text-xs text-gray-500 mt-1">.pt, .onnx, .h5 (Max 200MB)</p>
-              <button className="mt-4 px-4 py-2 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-700 shadow-sm">Pilih File</button>
+
+            <div className="space-y-3 mb-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Nama Model</label>
+                <input
+                  type="text"
+                  value={uploadModelName}
+                  onChange={(e) => setUploadModelName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
+                  placeholder="contoh: resnet50_v2"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Tipe Model</label>
+                <select
+                  value={uploadModelType}
+                  onChange={(e) => setUploadModelType(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
+                >
+                  <option value="Gram Classification">Klasifikasi Gram (CNN)</option>
+                  <option value="Detection">Deteksi Objek (YOLO)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Versi</label>
+                <input
+                  type="text"
+                  value={uploadVersion}
+                  onChange={(e) => setUploadVersion(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
+                  placeholder="1.0"
+                />
+              </div>
             </div>
-            <button className="w-full mt-4 py-2.5 rounded-lg text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md flex justify-center items-center gap-2"><Save size={16} /> Simpan ke Registry</button>
+
+            <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 flex flex-col items-center text-center cursor-pointer hover:bg-gray-50 transition-colors"
+              onClick={() => document.getElementById('model-file-input')?.click()}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const file = e.dataTransfer?.files?.[0];
+                if (file) setUploadFile(file);
+              }}
+            >
+              <Upload size={28} className="text-gray-400 mb-2" />
+              <p className="text-sm font-bold text-gray-700">{uploadFile ? uploadFile.name : 'Drag & drop file model'}</p>
+              <p className="text-xs text-gray-500 mt-1">.pt, .pth (Deteksi/Klasifikasi)</p>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); document.getElementById('model-file-input')?.click(); }}
+                className="mt-3 px-4 py-2 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-700 shadow-sm"
+              >Pilih File</button>
+              <input
+                id="model-file-input"
+                type="file"
+                accept=".pt,.pth"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target?.files?.[0];
+                  if (file) setUploadFile(file);
+                }}
+              />
+            </div>
+
+            <button
+              onClick={handleUploadSubmit}
+              disabled={isUploading}
+              className="w-full mt-4 py-2.5 rounded-lg text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md flex justify-center items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isUploading ? 'Mengunggah...' : (<><Save size={16} /> Simpan ke Registry</>)}
+            </button>
           </div>
 
           {/* Panel Auto-Retrain */}
@@ -667,7 +957,16 @@ const ModelManagement = () => {
                 <p className="text-sm font-bold text-gray-800">Auto-Retrain</p>
                 <p className="text-[10px] text-gray-500">Latih otomatis setiap 500 data baru</p>
               </div>
-              <div onClick={() => setAutoRetrain(!autoRetrain)} className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors ${autoRetrain ? 'bg-blue-600' : 'bg-gray-300'}`}>
+              <div onClick={async () => {
+                const next = !autoRetrain;
+                setAutoRetrain(next);
+                try {
+                  await modelService.updateRetrainConfig({ auto_retrain_enabled: next });
+                } catch {
+                  setAutoRetrain(!next);
+                  showToast('error', 'Gagal menyimpan konfigurasi retrain.');
+                }
+              }} className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors ${autoRetrain ? 'bg-blue-600' : 'bg-gray-300'}`}>
                 <div className={`w-3.5 h-3.5 bg-white rounded-full shadow-md transform transition-transform ${autoRetrain ? 'translate-x-4.5' : 'translate-x-0'}`} />
               </div>
             </div>

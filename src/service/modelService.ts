@@ -2,6 +2,7 @@ import { paramWithStatus, paramWithTaskType } from "../type/common";
 import { requestBodyRetrain, responseModel, responseProgressRetrain, responseRetrain } from "../type/modelType";
 import { APP_CONFIG } from "../utils/constant";
 import authService from "./authService";
+import { handleUnauthorized } from "./auth/authGuard";
 
 export class ModelService {
     async getModelList(param?: paramWithTaskType): Promise<responseModel> {
@@ -17,6 +18,7 @@ export class ModelService {
                 ...authService.getAuthorizationHeader(),
             },
         });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
         if (!response.ok) {
             throw new Error(`Failed to fetch model list: ${response.statusText}`);
         }
@@ -41,6 +43,7 @@ export class ModelService {
             }
         };
 
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
         if (!response.ok) {
             const errorBody = await tryReadJson();
             const message =
@@ -67,10 +70,236 @@ export class ModelService {
                 ...authService.getAuthorizationHeader(),
             },
         });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
         if (!response.ok) {
             throw new Error(`Failed to fetch retrain progress: ${response.statusText}`);
         }
         return response.json() as Promise<responseProgressRetrain>;
+    }
+
+    async activateModel(modelId: number): Promise<{ message: string }> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/${modelId}/activate`, {
+            method: 'PATCH',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        if (!response.ok) {
+            const err = await response.json().catch(() => null);
+            throw new Error(err?.detail || err?.message || 'Gagal mengaktifkan model.');
+        }
+        return response.json();
+    }
+
+    async deleteModel(modelId: number): Promise<{ message: string }> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/${modelId}`, {
+            method: 'DELETE',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        if (!response.ok) {
+            const err = await response.json().catch(() => null);
+            throw new Error(err?.detail || err?.message || 'Gagal menghapus model.');
+        }
+        return response.json();
+    }
+
+    async getRetrainConfig(): Promise<any> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/retrain-config`, {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        if (!response.ok) {
+            throw new Error(`Failed to fetch retrain config: ${response.statusText}`);
+        }
+        return response.json();
+    }
+
+    async updateRetrainConfig(data: { auto_retrain_enabled?: boolean; trigger_count?: number }): Promise<any> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/retrain-config`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+            body: JSON.stringify(data),
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        if (!response.ok) {
+            const err = await response.json().catch(() => null);
+            throw new Error(err?.detail || err?.message || 'Gagal memperbarui konfigurasi retrain.');
+        }
+        return response.json();
+    }
+
+    async getRetrainOptions(): Promise<any[]> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/retrain/options`, {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        if (!response.ok) {
+            throw new Error(`Failed to fetch retrain options: ${response.statusText}`);
+        }
+        return response.json();
+    }
+
+    async getActiveModel(): Promise<any> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/active`, {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        if (!response.ok) {
+            throw new Error(`Failed to fetch active model: ${response.statusText}`);
+        }
+        return response.json();
+    }
+
+    async getBestModel(): Promise<any> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/best`, {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        if (!response.ok) {
+            throw new Error(`Failed to fetch best model: ${response.statusText}`);
+        }
+        return response.json();
+    }
+    async uploadModel(formData: FormData): Promise<any> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/upload`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+            body: formData,
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+            throw new Error(data?.detail || data?.message || `Gagal mengunggah model: ${response.statusText}`);
+        }
+        return data;
+    }
+
+    async benchmarkAll(): Promise<{ message: string }> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/benchmark-all`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+            throw new Error(data?.detail || data?.message || `Gagal melakukan benchmark: ${response.statusText}`);
+        }
+        return data;
+    }
+
+    async benchmarkSingle(modelId: number): Promise<any> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/${modelId}/benchmark`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+            throw new Error(data?.detail || data?.message || `Gagal melakukan benchmark: ${response.statusText}`);
+        }
+        return data;
+    }
+
+    async getTrendData(period: string = 'daily'): Promise<any> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/trend?period=${period}`, {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        if (!response.ok) {
+            throw new Error(`Failed to fetch trend data: ${response.statusText}`);
+        }
+        return response.json();
+    }
+
+    async benchmarkYolo(modelId?: number, testDataPath?: string): Promise<any> {
+        const params = new URLSearchParams();
+        if (modelId) params.append('model_id', modelId.toString());
+        if (testDataPath) params.append('test_data_path', testDataPath);
+        const qs = params.toString() ? `?${params.toString()}` : '';
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/yolo-benchmark${qs}`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+            throw new Error(data?.detail || data?.message || `Gagal melakukan benchmark YOLO: ${response.statusText}`);
+        }
+        return data;
+    }
+
+    async benchmarkActive(): Promise<any> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/benchmark-active`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+            throw new Error(data?.detail || data?.message || `Gagal melakukan benchmark model aktif: ${response.statusText}`);
+        }
+        return data;
+    }
+
+    async benchmarkAllYolo(): Promise<any> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/yolo-benchmark-all`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+            throw new Error(data?.detail || data?.message || `Gagal melakukan benchmark semua model YOLO: ${response.statusText}`);
+        }
+        return data;
     }
 
 }

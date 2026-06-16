@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { ModelService } from '../../service/modelService';
+const modelService = new ModelService();
 import { Link } from 'react-router-dom';
 import { 
   Cpu, 
@@ -20,52 +22,7 @@ import {
   Legend
 } from 'recharts';
 
-// --- DATA DUMMY DINAMIS (Untuk Simulasi Filter) ---
-const dataHarian = [
-  { name: 'Senin', positif: 45, negatif: 30 },
-  { name: 'Selasa', positif: 52, negatif: 28 },
-  { name: 'Rabu', positif: 38, negatif: 45 },
-  { name: 'Kamis', positif: 65, negatif: 32 },
-  { name: 'Jumat', positif: 48, negatif: 25 },
-  { name: 'Sabtu', positif: 55, negatif: 38 },
-  { name: 'Minggu', positif: 40, negatif: 20 },
-];
-
-const dataMingguan = [
-  { name: 'Minggu 1', positif: 200, negatif: 150 },
-  { name: 'Minggu 2', positif: 240, negatif: 180 },
-  { name: 'Minggu 3', positif: 180, negatif: 220 },
-  { name: 'Minggu 4', positif: 300, negatif: 190 },
-];
-
-const dataBulanan = [
-  { name: 'Jan', positif: 820, negatif: 640 },
-  { name: 'Feb', positif: 910, negatif: 700 },
-  { name: 'Mar', positif: 780, negatif: 720 },
-  { name: 'Apr', positif: 1040, negatif: 830 },
-  { name: 'Mei', positif: 1120, negatif: 880 },
-  { name: 'Jun', positif: 990, negatif: 910 },
-  { name: 'Jul', positif: 1080, negatif: 950 },
-  { name: 'Agu', positif: 1025, negatif: 870 },
-  { name: 'Sep', positif: 970, negatif: 810 },
-  { name: 'Okt', positif: 1105, negatif: 920 },
-  { name: 'Nov', positif: 1150, negatif: 940 },
-  { name: 'Des', positif: 1200, negatif: 990 },
-];
-
-const dataTahunan = [
-  { name: '2022', positif: 6800, negatif: 5400 },
-  { name: '2023', positif: 8200, negatif: 6400 },
-  { name: '2024', positif: 9400, negatif: 7200 },
-  { name: '2025', positif: 12000, negatif: 9800 },
-];
-
-const confidenceData = [
-  { range: '90-100%', count: 850 },
-  { range: '80-90%', count: 200 },
-  { range: '70-80%', count: 50 },
-  { range: '< 70%', count: 20 },
-];
+// Data fetched from API
 
 // --- KOMPONEN KARTU MODEL ---
 const ModelStatusCard = ({ type, modelName, status, metrics, icon: Icon, targetTab }) => (
@@ -120,17 +77,65 @@ const ModelStatusCard = ({ type, modelName, status, metrics, icon: Icon, targetT
 const Dashboard = () => {
   // State untuk Filter Dropdown
   const [filter, setFilter] = useState('Harian');
+  const [activeModels, setActiveModels] = useState({ detection: null, classification: null });
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [trendData, setTrendData] = useState([]);
+  const [confidenceData, setConfidenceData] = useState([]);
+  const [trendLoading, setTrendLoading] = useState(false);
+  const [totals, setTotals] = useState({ total_classifications: 0, total_positif: 0, total_negatif: 0 });
 
-  // Logic ganti data berdasarkan filter
-  const getChartData = () => {
-    switch (filter) {
-      case 'Harian': return dataHarian;
-      case 'Mingguan': return dataMingguan;
-      case 'Bulanan': return dataBulanan;
-      case 'Tahunan': return dataTahunan;
-      default: return dataHarian;
+  useEffect(() => {
+    const fetchActive = async () => {
+      setModelsLoading(true);
+      try {
+        const data = await modelService.getActiveModel();
+        const result = {};
+        for (const item of (data || [])) {
+          const key = item.task_type === 'Detection' ? 'detection' : 'classification';
+          if (item.model) {
+            result[key] = {
+              name: item.model.model_name || '-',
+              accuracy: item.model.accuracy != null ? (item.model.accuracy * 100).toFixed(1) + '%' : '-',
+              f1: item.model.f1_score != null ? (item.model.f1_score * 100).toFixed(1) + '%' : '-',
+              precision: item.model.accuracy != null ? (item.model.accuracy * 100).toFixed(1) + '%' : '-',
+              recall: item.model.accuracy != null ? (item.model.accuracy * 100).toFixed(1) + '%' : '-',
+              status: item.model.is_active ? 'Active' : 'Inactive',
+            };
+          }
+        }
+        setActiveModels(result);
+      } catch (err) {
+        console.error('Gagal memuat model aktif:', err);
+      } finally {
+        setModelsLoading(false);
+      }
+    };
+    fetchActive();
+  }, []);
+
+  // Fetch trend data from API
+  const fetchTrend = async (period) => {
+    setTrendLoading(true);
+    try {
+      const data = await modelService.getTrendData(period);
+      setTrendData(data.trend || []);
+      setConfidenceData(data.confidence || []);
+      setTotals(data.summary || {});
+    } catch (err) {
+      console.error('Gagal memuat tren:', err);
+      setTrendData([]);
+      setConfidenceData([]);
+    } finally {
+      setTrendLoading(false);
     }
   };
+
+  useEffect(() => {
+    const periodMap = { 'Harian': 'daily', 'Mingguan': 'weekly', 'Bulanan': 'monthly', 'Tahunan': 'yearly' };
+    fetchTrend(periodMap[filter] || 'daily');
+  }, [filter]);
+
+  const getChartData = () => trendData;
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto bg-slate-50/80 p-4 rounded-2xl">
@@ -142,35 +147,39 @@ const Dashboard = () => {
       </div>
 
       {/* 1. STATUS MODEL SECTION */}
+      {modelsLoading ? (
+        <div className="text-sm text-gray-500">Memuat status model...</div>
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ModelStatusCard 
           type="Object Detection"
-          modelName="YOLOv8-Nano Custom"
-          status="Active"
+          modelName={activeModels.detection?.name || 'YOLO'}
+          status={activeModels.detection?.status || 'Inactive'}
           icon={Zap}
           targetTab="detection"
           metrics={[
-            { label: 'Mean AP (mAP)', value: '94.5%' },
-            { label: 'Precision', value: '92.1%' },
-            { label: 'Recall', value: '96.3%' },
-            { label: 'Avg Inference', value: '14 ms' }
+            { label: 'mAP50', value: activeModels.detection?.accuracy || '-' },
+            { label: 'mAP50-95', value: activeModels.detection?.f1 || '-' },
+            { label: 'Precision', value: activeModels.detection?.precision || '-' },
+            { label: 'Recall', value: activeModels.detection?.recall || '-' }
           ]}
         />
 
         <ModelStatusCard 
           type="Classification"
-          modelName="ResNet50-Microbio"
-          status="Active"
+          modelName={activeModels.classification?.name || 'CNN'}
+          status={activeModels.classification?.status || 'Inactive'}
           icon={Cpu}
           targetTab="classification"
           metrics={[
-            { label: 'Accuracy', value: '98.2%' },
-            { label: 'F1-Score', value: '97.8%' },
-            { label: 'Loss Value', value: '0.12' },
-            { label: 'Avg Inference', value: '28 ms' }
+            { label: 'Accuracy', value: activeModels.classification?.accuracy || '-' },
+            { label: 'F1-Score', value: activeModels.classification?.f1 || '-' },
+            { label: 'Precision', value: activeModels.classification?.precision || '-' },
+            { label: 'Recall', value: activeModels.classification?.recall || '-' }
           ]}
         />
       </div>
+      )}
 
       {/* 2. STATISTIK HASIL & PERFORMA */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -181,7 +190,7 @@ const Dashboard = () => {
             <div>
               <h3 className="font-bold text-gray-800">Tren Deteksi</h3>
               <p className="text-xs text-gray-400 mt-1">
-                Jumlah sampel Gram Positif vs Negatif ({filter})
+                {trendLoading ? 'Memuat...' : `${totals.total_classifications || 0} total klasifikasi (${filter})`}
               </p>
             </div>
             

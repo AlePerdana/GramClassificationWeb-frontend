@@ -2,6 +2,7 @@ import { paramWithSearch } from "../type/common";
 import { responseUser, UserCreateRequest, UserUpdateRequest } from "../type/userType";
 import { APP_CONFIG } from "../utils/constant";
 import { authService } from "./authService";
+import { handleUnauthorized } from "./auth/authGuard";
 
 
 
@@ -36,6 +37,8 @@ export class userService {
             },
         });
 
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+
         const data = await readJsonSafely(response);
         if (!response.ok) {
             throw new Error(getMessageFromJson(data) || `Failed to fetch user list: ${response.statusText}`);
@@ -56,6 +59,8 @@ export class userService {
             },
             body: JSON.stringify(payload),
         });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+
         const data = await readJsonSafely(response);
         if (!response.ok) {
             throw new Error(getMessageFromJson(data) || `Failed to create user: ${response.statusText}`);
@@ -73,6 +78,8 @@ export class userService {
             },
             body: JSON.stringify(payload),
         });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+
         const data = await readJsonSafely(response);
         if (!response.ok) {
             throw new Error(getMessageFromJson(data) || `Failed to update user: ${response.statusText}`);
@@ -88,6 +95,8 @@ export class userService {
                 ...authService.getAuthorizationHeader(),
             },
         });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+
         const data = await readJsonSafely(response);
         if (!response.ok) {
             throw new Error(getMessageFromJson(data) || `Failed to delete user: ${response.statusText}`);

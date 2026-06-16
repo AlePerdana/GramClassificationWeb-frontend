@@ -2,6 +2,7 @@ import { paramWithSearch } from "../type/common";
 import { responsePatient } from "../type/patientType";
 import { APP_CONFIG } from "../utils/constant";
 import { authService } from "./authService";
+import { handleUnauthorized } from "./auth/authGuard";
 
 export interface PatientQueueListParams extends paramWithSearch {
     specimen_status?: string;
@@ -50,6 +51,8 @@ export class PatientService {
             },
         });
 
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+
         const data = await readJsonSafely(response);
         if (!response.ok) {
             throw new Error(getMessageFromJson(data) || `Failed to fetch patient list: ${response.statusText}`);
@@ -77,6 +80,8 @@ export class PatientService {
             },
         });
 
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+
         const data = await readJsonSafely(response);
         if (!response.ok) {
             throw new Error(getMessageFromJson(data) || `Failed to fetch patient list: ${response.statusText}`);
@@ -97,6 +102,8 @@ export class PatientService {
             },
             body: JSON.stringify(payload),
         });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+
         const data = await readJsonSafely(response);
         if (!response.ok) {
             throw new Error(getMessageFromJson(data) || `Failed to create patient: ${response.statusText}`);
@@ -114,6 +121,8 @@ export class PatientService {
             },
             body: JSON.stringify(payload),
         });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+
         const data = await readJsonSafely(response);
         if (!response.ok) {
             throw new Error(getMessageFromJson(data) || `Failed to update patient: ${response.statusText}`);
@@ -129,6 +138,8 @@ export class PatientService {
                 ...authService.getAuthorizationHeader(),
             },
         });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+
         const data = await readJsonSafely(response);
         if (!response.ok) {
             throw new Error(getMessageFromJson(data) || `Failed to delete patient: ${response.statusText}`);
@@ -146,6 +157,8 @@ export class PatientService {
             },
             body: JSON.stringify({ nik }),
         });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+
         const data = await readJsonSafely(response);
         if (!response.ok) {
             const detail = (data as JsonRecord)?.detail;

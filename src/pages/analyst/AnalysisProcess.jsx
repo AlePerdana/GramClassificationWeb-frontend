@@ -918,10 +918,18 @@ const AnalysisProcess = () => {
       const currentPos = getRelPos(e.clientX, e.clientY);
 
       // Hitung kotak dengan dukungan drag ke segala arah (kiri-atas, kanan-bawah, dsb)
-      const x = Math.min(startPos.x, currentPos.x);
-      const y = Math.min(startPos.y, currentPos.y);
-      const w = Math.abs(currentPos.x - startPos.x);
-      const h = Math.abs(currentPos.y - startPos.y);
+      let x = Math.min(startPos.x, currentPos.x);
+      let y = Math.min(startPos.y, currentPos.y);
+      let w = Math.abs(currentPos.x - startPos.x);
+      let h = Math.abs(currentPos.y - startPos.y);
+
+      // Clamp ke batas gambar supaya box tidak keluar dari tepi
+      const imgW = imageMeta[activeImgIdx]?.clientW || Infinity;
+      const imgH = imageMeta[activeImgIdx]?.clientH || Infinity;
+      x = Math.max(0, Math.min(x, imgW));
+      y = Math.max(0, Math.min(y, imgH));
+      w = Math.min(w, imgW - x);
+      h = Math.min(h, imgH - y);
 
       setCurrentBox({ x, y, w, h });
     }
@@ -1030,10 +1038,13 @@ const AnalysisProcess = () => {
 
       // Konversi koordinat backend (natural image px) -> koordinat display frontend
       const imageEl = imageElementRef.current;
-      const naturalW = imageEl?.naturalWidth || 1;
-      const naturalH = imageEl?.naturalHeight || 1;
-      const displayW = imageEl?.clientWidth || naturalW;
-      const displayH = imageEl?.clientHeight || naturalH;
+      // Gunakan imageMeta yang sudah diset di onLoad, bukan live DOM langsung
+      // (live DOM bisa berubah karena centerImageFor belum sempat jalan)
+      const meta = imageMeta[activeImgIdx];
+      const naturalW = meta?.naturalW || imageEl?.naturalWidth || 1;
+      const naturalH = meta?.naturalH || imageEl?.naturalHeight || 1;
+      const displayW = meta?.clientW || imageEl?.clientWidth || naturalW;
+      const displayH = meta?.clientH || imageEl?.clientHeight || naturalH;
       const scaleToDisplayX = displayW / naturalW;
       const scaleToDisplayY = displayH / naturalH;
 
@@ -1729,7 +1740,7 @@ const AnalysisProcess = () => {
                         transformOrigin: '0 0',
                         transition: isInteracting ? 'none' : 'transform 0.1s ease-out'
                       }}
-                      className="inline-block relative"
+                      className="inline-block relative outline outline-1 outline-white/20"
                     >
                       <NgrokImage
                         ref={imageElementRef}
@@ -2094,7 +2105,7 @@ const AnalysisProcess = () => {
                   transformOrigin: '0 0',
                   transition: isInteracting ? 'none' : 'transform 0.1s ease-out'
                 }}
-                className="relative inline-block"
+                className="relative inline-block outline outline-1 outline-white/20"
               >
                 <NgrokImage
                   ref={modalImageRef}

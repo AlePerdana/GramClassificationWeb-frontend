@@ -95,6 +95,11 @@ const Dashboard = () => {
             ...authService.getAuthorizationHeader(),
           },
         });
+        if (response.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
         if (response.ok) {
           const data = await response.json();
           setChartData(data);

@@ -14,10 +14,16 @@ const MainLayout = ({ role }) => {
 
   // Guard: Redirect to login if not authenticated
   useEffect(() => {
-    if (!authService.isLoggedIn()) {
-      authService.clearSession();
-      navigate('/login');
-    }
+    const checkAuth = () => {
+      if (!authService.isLoggedIn()) {
+        authService.clearSession();
+        navigate('/login');
+      }
+    };
+
+    checkAuth();
+    const interval = setInterval(checkAuth, 60000); // Check every 60s
+    return () => clearInterval(interval);
   }, [navigate]);
 
   // Health check to detect if backend is down

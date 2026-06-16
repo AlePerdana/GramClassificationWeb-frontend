@@ -18,8 +18,8 @@ const joinApiUrl = (path) => {
     try {
       const urlObj = new URL(raw);
       raw = urlObj.pathname + urlObj.search;
-    } catch (e) {
-      raw = raw.replace(/^https?:\/\/[^\/]+/, '');
+    } catch {
+      raw = raw.replace(/^https?:\/\/[^/]+/, '');
     }
   }
   const normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '');
@@ -245,6 +245,12 @@ const MedicalReport = () => {
               ...authService.getAuthorizationHeader(),
             },
           });
+
+          if (detailResponse.status === 401) {
+            authService.clearSession();
+            navigate('/login');
+            return;
+          }
 
           if (detailResponse.ok) {
             const detailResult = await detailResponse.json();

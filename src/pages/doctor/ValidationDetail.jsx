@@ -9,7 +9,11 @@ import {
   X,
   Check,
   User,
-  Activity
+  Activity,
+  Table2,
+  LayoutGrid,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { APP_CONFIG } from '../../utils/constant';
 import NgrokImage from '../../components/common/NgrokImage';
@@ -78,6 +82,7 @@ const ValidationDetail = () => {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [selectedRows, setSelectedRows] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
+  const [viewMode, setViewMode] = useState('table');
   const itemsPerPage = 10;
 
   useEffect(() => {
@@ -353,31 +358,50 @@ const ValidationDetail = () => {
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-6 border-b border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50/50">
           <h3 className="font-bold text-slate-800 text-lg">Hasil Klasifikasi Gram Stain</h3>
-          <div className="flex flex-col items-end gap-2">
-            <label className="flex items-center gap-3 cursor-pointer group mb-1">
-              <span className="text-sm font-medium text-slate-500 group-hover:text-blue-600 transition-colors">
-                Sinkronisasi hasil ke SATUSEHAT
-              </span>
-              <div className="relative">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={syncToSatusehat}
-                  onChange={(e) => setSyncToSatusehat(e.target.checked)}
-                />
-                <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-              </div>
-            </label>
-            <button
-              onClick={handleSubmitValidation}
-              disabled={isSubmitting || rows.length === 0}
-              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-bold shadow-md hover:bg-blue-700 active:scale-95 transition-all flex items-center gap-2 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100"
-            >
-              <Check size={18} /> {isSubmitting ? 'Menyimpan...' : 'Validasi Hasil'}
-            </button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+              <button
+                onClick={() => setViewMode('table')}
+                className={`p-2 rounded-md transition-all ${viewMode === 'table' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                title="Tampilan Tabel"
+              >
+                <Table2 size={18} />
+              </button>
+              <button
+                onClick={() => setViewMode('card')}
+                className={`p-2 rounded-md transition-all ${viewMode === 'card' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                title="Tampilan Kartu"
+              >
+                <LayoutGrid size={18} />
+              </button>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer group">
+                <span className="text-xs font-medium text-slate-400 group-hover:text-blue-600 transition-colors whitespace-nowrap">
+                  SATUSEHAT
+                </span>
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={syncToSatusehat}
+                    onChange={(e) => setSyncToSatusehat(e.target.checked)}
+                  />
+                  <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                </div>
+              </label>
+              <button
+                onClick={handleSubmitValidation}
+                disabled={isSubmitting || rows.length === 0}
+                className="px-5 py-2 bg-blue-600 text-white rounded-lg font-bold shadow-sm hover:bg-blue-700 active:scale-95 transition-all flex items-center gap-2 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100 text-sm"
+              >
+                <Check size={16} /> {isSubmitting ? 'Menyimpan...' : 'Validasi Hasil'}
+              </button>
+            </div>
           </div>
         </div>
 
+        {viewMode === 'table' ? (
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold tracking-wider">
@@ -505,6 +529,124 @@ const ValidationDetail = () => {
             </tbody>
           </table>
         </div>
+        ) : (
+        <div className="p-4">
+          {rows.length === 0 ? (
+            <p className="p-8 text-center text-slate-500">Belum ada hasil klasifikasi.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {paginatedResults.map((row, index) => {
+                const rowKey = String(row?.id ?? row?.classification_id ?? (startIndex + index));
+                const draft = validations[rowKey] || {};
+                const imageUrl = joinApiUrl(row?.image_path || row?.image_url || row?.crop_url || '');
+                const aiGram = normalizeGram(row?.ai_gram || row?.classification_gram || '-');
+                const aiShape = normalizeShape(row?.classification_bentuk || '-');
+                const checked = !!selectedRows[rowKey];
+
+                return (
+                  <div
+                    key={rowKey}
+                    className={`bg-white rounded-xl border-2 transition-all overflow-hidden ${
+                      checked ? 'border-blue-400 shadow-md' : 'border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    {/* Header: index + include toggle */}
+                    <div className={`flex items-center justify-between px-3 py-2 ${checked ? 'bg-blue-50' : 'bg-slate-50'} border-b`}>
+                      <span className={`text-xs font-bold ${checked ? 'text-blue-600' : 'text-slate-500'}`}>
+                        #{startIndex + index + 1}
+                      </span>
+                      <label className="flex items-center gap-1.5 text-[10px] font-medium text-slate-500 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 text-blue-600 rounded cursor-pointer"
+                          checked={checked}
+                          onChange={(e) => {
+                            setSelectedRows(prev => ({ ...prev, [rowKey]: e.target.checked }));
+                          }}
+                        />
+                        Sertakan
+                      </label>
+                    </div>
+
+                    {/* Crop image */}
+                    <div
+                      onClick={() => openPreview({...row, image_url: imageUrl}, startIndex + index)}
+                      className="h-36 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all flex items-center justify-center overflow-hidden"
+                    >
+                      {imageUrl ? (
+                        <NgrokImage
+                          src={imageUrl}
+                          alt={`Crop ${startIndex + index + 1}`}
+                          className="w-full h-full object-contain"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      ) : (
+                        <span className="text-[10px] text-slate-400">N/A</span>
+                      )}
+                    </div>
+
+                    {/* AI Result */}
+                    <div className="px-3 py-2 border-b border-slate-100">
+                      <p className="text-sm font-bold text-slate-800">{aiGram}</p>
+                      <p className="text-xs text-slate-500">{aiShape}</p>
+                      <span className="inline-block mt-0.5 px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] rounded border border-slate-200">
+                        Conf: {toDisplayConfidence(row?.confidence)}%
+                      </span>
+                    </div>
+
+                    {/* Validation options */}
+                    <div className="px-3 py-2 space-y-3">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1.5">Validasi Gram</p>
+                        <div className="flex gap-2">
+                          {GRAM_OPTIONS.map((option) => (
+                            <label key={option} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg border-2 cursor-pointer transition-all text-xs font-bold ${
+                              draft.validation_gram === option
+                                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                            }`}>
+                              <input
+                                type="radio"
+                                name={`card-gram-${rowKey}`}
+                                checked={draft.validation_gram === option}
+                                onChange={() => handleValidationChange(rowKey, 'validation_gram', option)}
+                                className="sr-only"
+                              />
+                              {option}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1.5">Validasi Bentuk</p>
+                        <div className="flex gap-1.5 flex-wrap">
+                          {SHAPE_OPTIONS.map((option) => (
+                            <label key={option} className={`flex-1 flex items-center justify-center py-1.5 rounded-lg border-2 cursor-pointer transition-all text-[10px] font-bold ${
+                              draft.validation_bentuk === option
+                                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                            }`}>
+                              <input
+                                type="radio"
+                                name={`card-shape-${rowKey}`}
+                                checked={draft.validation_bentuk === option}
+                                onChange={() => handleValidationChange(rowKey, 'validation_bentuk', option)}
+                                className="sr-only"
+                              />
+                              {option}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        )}
 
         {/* Pagination Footer */}
         {rows.length > 0 && (
@@ -512,7 +654,7 @@ const ValidationDetail = () => {
             <span>Menampilkan {paginatedResults.length} dari {rows.length} data</span>
             <div className="flex gap-2 items-center">
               <button
-                className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors"
+                className="px-3 py-1 border rounded transition-colors bg-blue-600 text-white border-blue-600 hover:bg-blue-700 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
                 disabled={currentPage <= 1}
                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
               >
@@ -520,7 +662,7 @@ const ValidationDetail = () => {
               </button>
               <span className="px-2 py-1 text-gray-500 font-medium">Hal {currentPage} / {totalPages}</span>
               <button
-                className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors"
+                className="px-3 py-1 border rounded transition-colors bg-blue-600 text-white border-blue-600 hover:bg-blue-700 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
                 disabled={currentPage >= totalPages}
                 onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
               >

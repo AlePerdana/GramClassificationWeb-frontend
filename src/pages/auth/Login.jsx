@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Lock, Eye, EyeOff, Microscope } from 'lucide-react'; // Icon library
-import logoPens from '../../assets/react.svg'; // Ganti dengan path logo PENS kamu nanti
 import authService, { AuthError } from '../../service/authService';
 import BackendStatusBanner from '../../components/BackendStatusBanner';
 import { APP_CONFIG } from '../../utils/constant';
@@ -135,7 +134,7 @@ const Login = () => {
               
               {/* Header Form */}
               <div className="text-center">
-                  <img src={logoPens} alt="Logo PENS" className="h-16 mx-auto mb-4" /> 
+                  <Microscope size={48} className="text-primary mx-auto mb-4" />
                   <h2 className="text-2xl font-bold text-gray-900">Selamat Datang</h2>
                   <p className="text-gray-500 mt-2">Silakan masuk menggunakan akun Anda</p>
               </div>

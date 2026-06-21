@@ -17,7 +17,7 @@ export const defaultConfig: Required<
         ((import.meta as any)?.env?.VITE_API_BASE_URL as string | undefined) ??
         `${((import.meta as any)?.env?.VITE_API_HOST as string | undefined) ?? 'http://localhost:8000'}/api`,
     loginPath: 'auth/login',
-    refreshPath: '/token/refresh/',
+    refreshPath: 'auth/refresh',
     authHeaderName: 'Authorization',
     authHeaderPrefix: 'Bearer',
     storageKeyPrefix: 'auth.',

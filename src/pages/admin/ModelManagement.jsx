@@ -848,7 +848,7 @@ const ModelManagement = () => {
               <span>Menampilkan {paginatedModels.length} dari {reversedModels.length} data</span>
               <div className="flex gap-2 items-center">
                 <button 
-                  className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors" 
+                  className="px-3 py-1 border rounded transition-colors bg-blue-600 text-white border-blue-600 hover:bg-blue-700 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed" 
                   disabled={currentPage <= 1}
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                 >
@@ -856,7 +856,7 @@ const ModelManagement = () => {
                 </button>
                 <span className="px-2 py-1 text-gray-500 font-medium">Hal {currentPage} / {totalPages}</span>
                 <button 
-                  className="px-3 py-1 border border-gray-200 rounded bg-white disabled:opacity-50 hover:bg-gray-50 transition-colors"
+                  className="px-3 py-1 border rounded transition-colors bg-blue-600 text-white border-blue-600 hover:bg-blue-700 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
                   disabled={currentPage >= totalPages}
                   onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                 >
@@ -971,12 +971,14 @@ const ModelManagement = () => {
               </div>
             </div>
 
+            {activeTab === 'classification' && (
             <button
               onClick={openRetrainModal}
               className="w-full py-2.5 rounded-lg text-sm font-bold text-white bg-slate-800 hover:bg-slate-900 shadow-md flex justify-center items-center gap-2"
             >
               <Play size={16} /> Mulai Manual
             </button>
+            )}
           </div>
 
           {/* Panel Progress Retrain */}

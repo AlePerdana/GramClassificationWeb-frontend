@@ -5,6 +5,7 @@ import { AuthError } from './errors';
 import { decodeJwtPayload, isJwtExpired } from './jwt';
 import { sessionStorage } from './storage';
 import { normalizeTokens } from './tokens';
+import { handleUnauthorized } from './authGuard';
 
 export type AuthServiceApi = {
     getApiBaseUrl(config?: AuthServiceConfig): string;
@@ -284,6 +285,7 @@ export const createAuthService = (): AuthServiceApi => {
 
             const refreshToken = service.getRefreshToken(cfg);
             if (!refreshToken) {
+                handleUnauthorized();
                 const body =
                     typeof first.data === 'string' ? first.data : JSON.stringify(first.data ?? {});
                 return new Response(body, { status: first.status, statusText: first.statusText, headers: first.headers as any });
@@ -304,7 +306,7 @@ export const createAuthService = (): AuthServiceApi => {
                     headers: second.headers as any,
                 });
             } catch {
-                service.clearSession(cfg);
+                handleUnauthorized();
                 const body =
                     typeof first.data === 'string' ? first.data : JSON.stringify(first.data ?? {});
                 return new Response(body, { status: first.status, statusText: first.statusText, headers: first.headers as any });

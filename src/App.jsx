@@ -28,8 +28,12 @@ const homePathForRole = (role) => {
 };
 
 const RequireRole = ({ requiredRole, children }) => {
+  // Force full page reload when expired — avoids React Router racing with window.location.href
   if (!authService.isLoggedIn()) {
-    authService.clearSession();
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login';
+      return null;
+    }
     return <Navigate to="/login" replace />;
   }
 

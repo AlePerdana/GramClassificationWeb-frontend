@@ -48,6 +48,7 @@ export class ModelService {
             const errorBody = await tryReadJson();
             const message =
                 (errorBody && typeof errorBody.message === 'string' && errorBody.message) ||
+                (errorBody && typeof errorBody.detail === 'string' && errorBody.detail) ||
                 `Failed to retrain model: ${response.statusText}`;
             throw new Error(message);
         }
@@ -75,6 +76,38 @@ export class ModelService {
             throw new Error(`Failed to fetch retrain progress: ${response.statusText}`);
         }
         return response.json() as Promise<responseProgressRetrain>;
+    }
+
+    async cancelTrainingJob(jobId: number): Promise<{ message: string }> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/training-jobs/${jobId}/cancel`, {
+            method: 'PATCH',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        if (!response.ok) {
+            const err = await response.json().catch(() => null);
+            throw new Error(err?.detail || err?.message || 'Gagal membatalkan training job.');
+        }
+        return response.json();
+    }
+
+    async deleteTrainingJob(jobId: number): Promise<{ message: string }> {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/models/training-jobs/${jobId}`, {
+            method: 'DELETE',
+            headers: {
+                Accept: 'application/json',
+                ...authService.getAuthorizationHeader(),
+            },
+        });
+        if (response.status === 401) { handleUnauthorized(); throw new Error('Unauthorized'); }
+        if (!response.ok) {
+            const err = await response.json().catch(() => null);
+            throw new Error(err?.detail || err?.message || 'Gagal menghapus training job.');
+        }
+        return response.json();
     }
 
     async activateModel(modelId: number): Promise<{ message: string }> {

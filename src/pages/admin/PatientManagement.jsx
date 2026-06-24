@@ -173,11 +173,19 @@ const PatientManagement = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Validasi No. RM
-    const cleanRm = String(formData.id_pasien || '').trim();
+    // Validasi No. RM — if only last 4 digits typed, auto-complete
+    let cleanRm = String(formData.id_pasien || '').trim();
     if (!cleanRm) {
       showToast('error', 'Nomor Rekam Medis wajib diisi.');
       return;
+    }
+    if (!cleanRm.startsWith('RM-') && /^\d{1,4}$/.test(cleanRm)) {
+      const now = new Date();
+      const pad = (num) => String(num).padStart(2, '0');
+      const y = now.getFullYear();
+      const m = pad(now.getMonth() + 1);
+      const d = pad(now.getDate());
+      cleanRm = `RM-${y}${m}${d}-${cleanRm.padStart(4, '0')}`;
     }
 
     // Validasi NIK
@@ -302,7 +310,7 @@ const PatientManagement = () => {
   return (
     <div className="space-y-6 bg-slate-50/80 p-4 rounded-2xl">
       {toast.open && (
-        <div className="fixed top-4 right-4 z-50">
+        <div className="fixed top-4 right-4 z-[9999]">
           <div className={`min-w-[280px] max-w-sm px-4 py-3 rounded-xl shadow-lg border text-sm ${toast.type === 'success' ? 'bg-white border-green-200 text-green-700' : 'bg-white border-red-200 text-red-700'}`}>
             <div className="flex items-start gap-2">
               {toast.type === 'success' ? (
@@ -475,7 +483,7 @@ const PatientManagement = () => {
                   type="text"
                   required
                   className="flex-1 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                  placeholder="Masukkan No. RM"
+                  placeholder="4 digit terakhir, ex: 1234"
                   value={formData.id_pasien}
                   onChange={(e) => setFormData({ ...formData, id_pasien: e.target.value.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 20) })}
                 />

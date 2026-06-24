@@ -144,8 +144,8 @@ const Dashboard = () => {
         const pendingData = pendingRes.ok ? await pendingRes.json() : [];
         const waitingData = waitingRes.ok ? await waitingRes.json() : [];
 
-        setPendingPatients(Array.isArray(pendingData) ? pendingData : []);
-        setWaitingValidationPatients(Array.isArray(waitingData) ? waitingData : []);
+        setPendingPatients(Array.isArray(pendingData?.data) ? pendingData.data : Array.isArray(pendingData) ? pendingData : []);
+        setWaitingValidationPatients(Array.isArray(waitingData?.data) ? waitingData.data : Array.isArray(waitingData) ? waitingData : []);
       } catch (error) {
         console.error('Gagal mengambil antrean pasien:', error);
         setPendingPatients([]);
@@ -158,15 +158,28 @@ const Dashboard = () => {
     fetchPatients();
   }, [API_BASE_URL, navigate]);
 
-  const waitingQueue = pendingPatients.map((p) => ({
-    id: p.id_pasien || p.id,
-    patientId: p.id || p.id_pasien,
-    name: p.nama_lengkap || p.name || '-',
-    time: p.created_at
-      ? new Date(p.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
-      : '-',
-    status: 'Menunggu Sampel',
-  }));
+  const waitingQueue = pendingPatients
+    .map((p) => {
+      const dateStr = p.created_at || p.waktu_masuk;
+      const diff = dateStr ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000) : 0;
+      const urgency = diff > 15 ? 'high' : diff > 5 ? 'medium' : 'low';
+      return {
+        id: p.id_pasien || p.id,
+        patientId: p.id || p.id_pasien,
+        name: p.nama_lengkap || p.name || '-',
+        time: dateStr
+          ? new Date(dateStr).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+          : '-',
+        status: 'Menunggu Sampel',
+        urgency,
+        sortTime: dateStr ? new Date(dateStr).getTime() : 0,
+      };
+    })
+    .sort((a, b) => {
+      const order = { high: 0, medium: 1, low: 2 };
+      const d = order[a.urgency] - order[b.urgency];
+      return d !== 0 ? d : a.sortTime - b.sortTime;
+    });
 
   const queueCount = waitingQueue.length + waitingValidationPatients.length;
 
@@ -285,7 +298,19 @@ const Dashboard = () => {
                       <p className="text-sm font-bold text-gray-800">{patient.name}</p>
                       <p className="text-xs text-gray-400 font-mono mt-0.5">{patient.id}</p>
                     </div>
-                    <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded font-medium">{patient.time}</span>
+                    <div className="flex items-center gap-2">
+                      {patient.urgency === 'high' && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-red-100 text-red-600 flex items-center gap-0.5">
+                          <AlertTriangle size={10} /> Prioritas Tinggi
+                        </span>
+                      )}
+                      {patient.urgency === 'medium' && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-yellow-100 text-yellow-700 flex items-center gap-0.5">
+                          <Clock size={10} /> Prioritas Sedang
+                        </span>
+                      )}
+                      <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded font-medium">{patient.time}</span>
+                    </div>
                   </div>
 
                   <div className="mt-4 flex items-center justify-between">
@@ -295,9 +320,9 @@ const Dashboard = () => {
 
                     <button
                       onClick={() => handleInputSample(patient.patientId)}
-                      className="text-xs bg-primary text-white px-3 py-1.5 rounded-lg shadow-sm hover:bg-blue-700 transition-colors flex items-center gap-1 font-medium group-hover:scale-105 transform duration-200"
+                      className="text-xs bg-teal-600 text-white px-3 py-1.5 rounded-lg shadow-sm hover:bg-teal-700 transition-colors flex items-center gap-1 font-medium w-full justify-center"
                     >
-                      Input Sampel <ArrowRight size={12} />
+                      <ArrowRight size={14} /> Input Sampel
                     </button>
                   </div>
                 </div>
@@ -308,7 +333,6 @@ const Dashboard = () => {
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-50 text-center">
-            <p className="text-xs text-gray-400">Data disinkronkan dari Admin pendaftaran.</p>
           </div>
         </div>
       </div>

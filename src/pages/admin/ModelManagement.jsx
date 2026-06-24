@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Save, Upload, Play, Trash2, Check, Zap, Layers, FileUp, Activity, Target,
   BarChart2, Settings, Database, Clock, TrendingUp, TrendingDown, Cpu, Star, CheckCircle, RefreshCw
@@ -99,10 +99,11 @@ const ModelManagement = () => {
   const [activeTrainingJobId, setActiveTrainingJobId] = useState(null);
   const [retrainForm, setRetrainForm] = useState({
     model_id: '',
+    version_label: '',
     epochs_head: '',
     epochs_ft: '',
     batch_size: '',
-    val_ratio_crop: '',
+    val_ratio_crops: '',
   });
   const [modelSearch, setModelSearch] = useState('');
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
@@ -119,25 +120,31 @@ const ModelManagement = () => {
   const [uploadVersion, setUploadVersion] = useState('1.0');
   const [isUploading, setIsUploading] = useState(false);
   const [isBenchmarking, setIsBenchmarking] = useState(false);
+  const [validatedDataCount, setValidatedDataCount] = useState(0);
+  const [retrainableModels, setRetrainableModels] = useState([]);
 
 
   const [trainingJobs, setTrainingJobs] = useState([]);
   const [isLoadingTrainingJobs, setIsLoadingTrainingJobs] = useState(false);
   const [trainingJobsError, setTrainingJobsError] = useState('');
+  const hasFetchedTrainingJobs = useRef(false);
 
-  const fetchTrainingJobs = async () => {
-    setIsLoadingTrainingJobs(true);
+  const fetchTrainingJobs = async (isPoll = false) => {
+    if (!isPoll) setIsLoadingTrainingJobs(true);
     setTrainingJobsError('');
     try {
       const res = await modelService.getProgressRetrain({ page: 1, per_page: 10 });
       const list = Array.isArray(res?.data) ? res.data : [];
       const sorted = [...list].sort((a, b) => Number(b.job_id || 0) - Number(a.job_id || 0));
       setTrainingJobs(sorted);
+      hasFetchedTrainingJobs.current = true;
 
       if (activeTrainingJobId) {
         const job = sorted.find((j) => String(j.job_id) === String(activeTrainingJobId));
         if (job && isJobFinished(job.status)) {
           setActiveTrainingJobId(null);
+          // Refresh config to update validated data count
+          fetchConfig();
           if (String(job.status || '').toLowerCase().includes('fail') || String(job.status || '').toLowerCase().includes('error')) {
             showToast('error', `Training job #${job.job_id} gagal.`);
           } else {
@@ -145,26 +152,38 @@ const ModelManagement = () => {
           }
         }
       }
+
+      // Also refresh config when any pre-existing job finishes
+      const anyFinished = sorted.some(
+        (j) => isJobFinished(j.status) && !trainingJobs.find((old) => old.job_id === j.job_id && isJobFinished(old.status))
+      );
+      if (anyFinished) {
+        fetchConfig();
+      }
     } catch (err) {
       setTrainingJobsError(err?.message || 'Gagal mengambil progress retrain.');
     } finally {
-      setIsLoadingTrainingJobs(false);
+      if (!isPoll) setIsLoadingTrainingJobs(false);
+    }
+  };
+
+  const fetchConfig = async () => {
+    try {
+      const config = await modelService.getRetrainConfig();
+      setAutoRetrain(config?.auto_retrain_enabled ?? false);
+      setValidatedDataCount(config?.validated_data_since_last_train ?? 0);
+    } catch {
+      // Non-critical
     }
   };
 
   useEffect(() => {
-    fetchTrainingJobs();
-
-    // Fetch retrain config
-    const fetchConfig = async () => {
-      try {
-        const config = await modelService.getRetrainConfig();
-        setAutoRetrain(config?.auto_retrain_enabled ?? false);
-      } catch {
-        // Non-critical
-      }
-    };
+    fetchTrainingJobs(false);
     fetchConfig();
+    // Fetch classification models that support retrain
+    modelService.getRetrainOptions().then((opts) => {
+      setRetrainableModels((opts || []).filter((m) => m.task_type !== 'Detection' && m.supports_retrain));
+    }).catch(() => {});
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -177,7 +196,7 @@ const ModelManagement = () => {
   useEffect(() => {
     if (!shouldPollTrainingJobs) return;
     const id = window.setInterval(() => {
-      fetchTrainingJobs();
+      fetchTrainingJobs(true);
     }, 4000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -265,16 +284,14 @@ const ModelManagement = () => {
 
   const openRetrainModal = () => {
     const defaultId = activeModel?.id ?? '';
-    const defaultLabel = activeModel?.version ?? '';
     setRetrainForm({
       model_id: String(defaultId),
+      version_label: '',
       epochs_head: '',
       epochs_ft: '',
       batch_size: '',
-      val_ratio_crop: '',
+      val_ratio_crops: '',
     });
-    setModelSearch(defaultId ? `${defaultId} - ${defaultLabel}`.trim() : '');
-    setIsModelDropdownOpen(false);
     setIsRetrainModalOpen(true);
   };
 
@@ -316,7 +333,7 @@ const ModelManagement = () => {
       return;
     }
 
-    const valRatio = toOptionalNumber(retrainForm.val_ratio_crop);
+    const valRatio = toOptionalNumber(retrainForm.val_ratio_crops);
     if (valRatio !== undefined && (valRatio < 0.01 || valRatio > 0.99)) {
       showToast('error', 'Val Ratio Crop harus di antara 0.01 dan 0.99.');
       return;
@@ -324,10 +341,11 @@ const ModelManagement = () => {
 
     const payload = {
       model_id: modelId,
+      version_label: retrainForm.version_label?.trim() || undefined,
       epochs_head: toOptionalNumber(retrainForm.epochs_head),
       epochs_ft: toOptionalNumber(retrainForm.epochs_ft),
       batch_size: toOptionalNumber(retrainForm.batch_size),
-      val_ratio_crop: toOptionalNumber(retrainForm.val_ratio_crop),
+      val_ratio_cropss: toOptionalNumber(retrainForm.val_ratio_crops),
     };
 
     Object.keys(payload).forEach((k) => {
@@ -494,7 +512,7 @@ const ModelManagement = () => {
     <div className="space-y-6 max-w-7xl mx-auto bg-slate-50/80 p-4 rounded-2xl">
 
       {toast.open && (
-        <div className="fixed top-4 right-4 z-50">
+        <div className="fixed top-4 right-4 z-[9999]">
           <div className={`min-w-[280px] max-w-sm px-4 py-3 rounded-xl shadow-lg border text-sm ${toast.type === 'success' ? 'bg-white border-green-200 text-green-700' : 'bg-white border-red-200 text-red-700'}`}>
             <div className="flex items-start gap-2">
               {toast.type === 'success' ? (
@@ -527,56 +545,36 @@ const ModelManagement = () => {
               <button type="button" onClick={closeRetrainModal} className="text-gray-400 hover:text-gray-600" aria-label="Tutup">×</button>
             </div>
 
+            {/* Dataset Info Banner */}
+            <div className="px-5 pt-2 pb-0">
+              <div className="p-3 bg-green-50 rounded-lg border border-green-200 flex items-center gap-3">
+                <Database size={18} className="text-green-600 shrink-0" />
+                <div>
+                  <p className="text-xs font-bold text-gray-700">Dataset untuk Retrain</p>
+                  <p className="text-[11px] text-gray-600">
+                    {validatedDataCount} data Gram Stain tervalidasi tersedia untuk digunakan dalam retrain
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <form onSubmit={handleSubmitRetrain} className="p-5 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">Model</label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={modelSearch}
-                      onChange={(e) => {
-                        const next = e.target.value;
-                        setModelSearch(next);
-                        const m = String(next).match(/^\s*(\d+)/);
-                        if (m?.[1]) {
-                          setRetrainForm((p) => ({ ...p, model_id: m[1] }));
-                        }
-                        setIsModelDropdownOpen(true);
-                      }}
-                      onFocus={() => setIsModelDropdownOpen(true)}
-                      onBlur={() => window.setTimeout(() => setIsModelDropdownOpen(false), 150)}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
-                      placeholder={isLoadingModels ? 'Memuat model...' : 'Cari model (id / nama)'}
-                      disabled={isLoadingModels}
-                      required
-                    />
-
-                    {isModelDropdownOpen && !isLoadingModels && (
-                      <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-auto">
-                        {filteredModelOptions.length === 0 ? (
-                          <div className="px-3 py-2 text-xs text-gray-500">Tidak ada model yang cocok.</div>
-                        ) : (
-                          filteredModelOptions.slice(0, 50).map((opt) => (
-                            <button
-                              key={opt.id}
-                              type="button"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                setRetrainForm((p) => ({ ...p, model_id: String(opt.id) }));
-                                setModelSearch(`${opt.label}`.trim());
-                                setIsModelDropdownOpen(false);
-                              }}
-                              className="w-full text-left px-3 py-2 hover:bg-blue-50/30"
-                            >
-                              <div className="text-sm font-bold text-gray-800 truncate">{opt.id} - {opt.label}</div>
-                              <div className="text-[10px] text-gray-400">Status: {opt.status}</div>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Model CNN</label>
+                  <select
+                    value={retrainForm.model_id}
+                    onChange={(e) => setRetrainForm((p) => ({ ...p, model_id: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
+                    required
+                  >
+                    <option value="">-- Pilih Model --</option>
+                    {retrainableModels.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.id} - {m.model_name} v{m.version} {m.is_active ? '(Aktif)' : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -593,7 +591,7 @@ const ModelManagement = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">Epochs Head (opsional)</label>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Epochs Head (default: 10)</label>
                   <input
                     type="number"
                     min="1"
@@ -601,12 +599,12 @@ const ModelManagement = () => {
                     value={retrainForm.epochs_head}
                     onChange={(e) => setRetrainForm((p) => ({ ...p, epochs_head: e.target.value.replace(/\D/g, '') }))}
                     className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
-                    placeholder="contoh: 5"
+                    placeholder="10 (default)"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">Epochs Fine-tune (opsional)</label>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Epochs Fine-tune (default: 30)</label>
                   <input
                     type="number"
                     min="1"
@@ -625,12 +623,25 @@ const ModelManagement = () => {
                     step="0.01"
                     min="0.01"
                     max="0.99"
-                    value={retrainForm.val_ratio_crop}
-                    onChange={(e) => setRetrainForm((p) => ({ ...p, val_ratio_crop: e.target.value }))}
+                    value={retrainForm.val_ratio_crops}
+                    onChange={(e) => setRetrainForm((p) => ({ ...p, val_ratio_crops: e.target.value }))}
                     className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
                     placeholder="contoh: 0.2"
                   />
                   <p className="text-[10px] text-gray-400 mt-1">Nilai desimal, mis. 0.2 untuk 20% (batas: 0.01 - 0.99).</p>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Version Label (opsional)</label>
+                  <input
+                    type="text"
+                    maxLength={50}
+                    value={retrainForm.version_label}
+                    onChange={(e) => setRetrainForm((p) => ({ ...p, version_label: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
+                    placeholder="cth: fix-overfitting (minor bump)"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">Dengan label → minor bump (v1.0 → v1.1). Tanpa label → major bump (v1.0 → v2.0).</p>
                 </div>
               </div>
 
@@ -952,6 +963,19 @@ const ModelManagement = () => {
             <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Database size={18} className="text-slate-500"/> Pelatihan Ulang (Retrain)</h3>
             <p className="text-xs text-gray-500 mb-4">Gunakan data Gram Stain yang divalidasi dokter untuk melatih model aktif.</p>
 
+            {/* Data Tersedia untuk Retrain */}
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 mb-4">
+              <div className="flex items-center gap-3">
+                <Database size={18} className="text-blue-600 shrink-0" />
+                <div>
+                  <p className="text-sm font-bold text-gray-800">Data Tersedia untuk Retrain</p>
+                  <p className="text-xs text-gray-600">
+                    <span className="font-bold text-blue-700">{validatedDataCount}</span> data Gram Stain tervalidasi sejak training terakhir
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 mb-4">
               <div>
                 <p className="text-sm font-bold text-gray-800">Auto-Retrain</p>
@@ -967,18 +991,17 @@ const ModelManagement = () => {
                   showToast('error', 'Gagal menyimpan konfigurasi retrain.');
                 }
               }} className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors ${autoRetrain ? 'bg-blue-600' : 'bg-gray-300'}`}>
-                <div className={`w-3.5 h-3.5 bg-white rounded-full shadow-md transform transition-transform ${autoRetrain ? 'translate-x-4.5' : 'translate-x-0'}`} />
+                <div className={`w-3.5 h-3.5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${autoRetrain ? 'translate-x-[18px]' : 'translate-x-0'}`} />
               </div>
             </div>
 
-            {activeTab === 'classification' && (
             <button
               onClick={openRetrainModal}
               className="w-full py-2.5 rounded-lg text-sm font-bold text-white bg-slate-800 hover:bg-slate-900 shadow-md flex justify-center items-center gap-2"
             >
               <Play size={16} /> Mulai Manual
             </button>
-            )}
+            <p className="text-[10px] text-gray-400 mt-2">Pilih model yang akan dilatih ulang. Retrain didukung untuk model CNN (ResNet, EfficientNet, DenseNet).</p>
           </div>
 
           {/* Panel Progress Retrain */}
@@ -1003,7 +1026,7 @@ const ModelManagement = () => {
               </div>
             )}
 
-            {isLoadingTrainingJobs ? (
+            {isLoadingTrainingJobs && (trainingJobs || []).length === 0 ? (
               <div className="text-xs text-gray-500">Memuat progress...</div>
             ) : (trainingJobs || []).length === 0 ? (
               <div className="text-xs text-gray-500">Belum ada training job.</div>
@@ -1038,6 +1061,65 @@ const ModelManagement = () => {
                             style={{ width: `${percent}%` }}
                           />
                         </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="mt-3 flex items-center gap-2">
+                        {String(job.status || '').toUpperCase() === 'TRAINING' && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!window.confirm(`Batalkan training job #${job.job_id}?`)) return;
+                              try {
+                                await modelService.cancelTrainingJob(job.job_id);
+                                showToast('success', `Job #${job.job_id} dibatalkan.`);
+                                fetchTrainingJobs();
+                              } catch (err) {
+                                showToast('error', err?.message || 'Gagal membatalkan job.');
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+                          >
+                            <span>×</span> Batalkan
+                          </button>
+                        )}
+                        {isJobFinished(job.status) && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!window.confirm(`Hapus training job #${job.job_id} dari daftar?`)) return;
+                              try {
+                                await modelService.deleteTrainingJob(job.job_id);
+                                showToast('success', `Job #${job.job_id} dihapus.`);
+                                fetchTrainingJobs();
+                              } catch (err) {
+                                showToast('error', err?.message || 'Gagal menghapus job.');
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold border border-gray-200 text-gray-500 bg-white hover:bg-gray-50 transition-colors"
+                          >
+                            <Trash2 size={11} /> Hapus
+                          </button>
+                        )}
+                        {['FAILED', 'CANCELLED'].includes(String(job.status || '').toUpperCase()) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRetrainForm({
+                                model_id: String(job.model_id ?? ''),
+                                version_label: '',
+                                epochs_head: '',
+                                epochs_ft: '',
+                                batch_size: '',
+                                val_ratio_crops: '',
+                              });
+                              setIsRetrainModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
+                          >
+                            <RefreshCw size={12} /> Retry
+                          </button>
+                        )}
                       </div>
                     </div>
                   );

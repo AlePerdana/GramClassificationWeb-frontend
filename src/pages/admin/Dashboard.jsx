@@ -97,8 +97,8 @@ const Dashboard = () => {
               name: item.model.model_name || '-',
               accuracy: item.model.accuracy != null ? (item.model.accuracy * 100).toFixed(1) + '%' : '-',
               f1: item.model.f1_score != null ? (item.model.f1_score * 100).toFixed(1) + '%' : '-',
-              precision: item.model.accuracy != null ? (item.model.accuracy * 100).toFixed(1) + '%' : '-',
-              recall: item.model.accuracy != null ? (item.model.accuracy * 100).toFixed(1) + '%' : '-',
+              precision: item.model.precision_score != null ? (item.model.precision_score * 100).toFixed(1) + '%' : '-',
+              recall: item.model.recall_score != null ? (item.model.recall_score * 100).toFixed(1) + '%' : '-',
               status: item.model.is_active ? 'Active' : 'Inactive',
             };
           }
@@ -117,10 +117,26 @@ const Dashboard = () => {
   const fetchTrend = async (period) => {
     setTrendLoading(true);
     try {
-      const data = await modelService.getTrendData(period);
-      setTrendData(data.trend || []);
-      setConfidenceData(data.confidence || []);
-      setTotals(data.summary || {});
+      const raw = await modelService.getTrendData(period);
+
+      // Normalize trend data keys (support various backends)
+      const trendRaw = Array.isArray(raw?.trend) ? raw.trend : [];
+      const trend = trendRaw.map(item => ({
+        name: item.name ?? item.period ?? item.date ?? '',
+        positif: item.positif ?? item.gram_positif ?? item.positive ?? 0,
+        negatif: item.negatif ?? item.gram_negatif ?? item.negative ?? 0,
+      }));
+      setTrendData(trend);
+
+      // Normalize confidence data keys
+      const confRaw = Array.isArray(raw?.confidence) ? raw.confidence : [];
+      const confidence = confRaw.map(item => ({
+        range: item.range ?? item.label ?? item.range_label ?? '',
+        count: item.count ?? item.value ?? item.total ?? 0,
+      }));
+      setConfidenceData(confidence);
+
+      setTotals(raw?.summary || {});
     } catch (err) {
       console.error('Gagal memuat tren:', err);
       setTrendData([]);

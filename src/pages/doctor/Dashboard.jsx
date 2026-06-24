@@ -142,13 +142,25 @@ const Dashboard = () => {
             ? result.data
             : [];
 
-        const mapped = payload.map((item) => ({
-          id: item?.specimens?.[0]?.id_specimen ?? item?.id_specimen ?? item?.specimen_id ?? item?.id,
-          name: item?.nama_pasien || item?.patient_name || '-',
-          result: item?.hasil_gram || 'Menunggu Validasi',
-          confidence: item?.confidence ? `${item.confidence}%` : '-',
-          urgency: item?.urgency || 'Normal',
-        }));
+        const mapped = payload
+          .map((item) => {
+            const dateStr = item.earliest_upload;
+            const diff = dateStr ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000) : 0;
+            const urgency = diff > 15 ? 'high' : diff > 5 ? 'medium' : 'low';
+            return {
+              id: item?.specimens?.[0]?.id_specimen ?? item?.id_specimen ?? item?.specimen_id ?? item?.id,
+              name: item?.nama_pasien || item?.patient_name || '-',
+              result: item?.hasil_gram || 'Menunggu Validasi',
+              confidence: item?.confidence ? `${item.confidence}%` : '-',
+              urgency,
+              sortTime: dateStr ? new Date(dateStr).getTime() : 0,
+            };
+          })
+          .sort((a, b) => {
+            const order = { high: 0, medium: 1, low: 2 };
+            const d = order[a.urgency] - order[b.urgency];
+            return d !== 0 ? d : a.sortTime - b.sortTime;
+          });
 
         setValidationQueue(mapped);
       } catch (error) {
@@ -331,17 +343,22 @@ const Dashboard = () => {
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="text-sm font-bold text-gray-800">{patient.name}</p>
-                    <p className="text-xs text-gray-400 font-mono mt-0.5">{patient.id}</p>
+                    {patient.urgency === 'high' && (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-red-600 mt-1">
+                        <AlertTriangle size={10} /> Prioritas Tinggi
+                      </span>
+                    )}
+                    {patient.urgency === 'medium' && (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-yellow-600 mt-1">
+                        <Clock size={10} /> Prioritas Sedang
+                      </span>
+                    )}
                   </div>
                   <span className={`text-[10px] px-2 py-1 rounded font-bold ${
                       patient.result === 'Gram Positif' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'
                   }`}>
                     {patient.result}
                   </span>
-                </div>
-                
-                <div className="mt-2 text-xs text-gray-500">
-                    AI Confidence: <span className="font-bold text-gray-700">{patient.confidence}</span>
                 </div>
 
                 <div className="mt-4 flex items-center justify-end">

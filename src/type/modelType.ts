@@ -23,6 +23,7 @@ export interface model {
 
 export interface requestBodyRetrain {
     model_id: number;
+    version_label?: string;
     epochs_head?: number;
     epochs_ft?: number;
     batch_size?: number;

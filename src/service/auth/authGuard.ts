@@ -7,6 +7,6 @@ import { sessionStorage } from './storage';
 export const handleUnauthorized = (): void => {
     sessionStorage.clearSession();
     if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+        window.location.replace('/login');
     }
 };

@@ -2,90 +2,116 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../../service/authService';
 import { 
-  Users, ClipboardCheck, Clock, CheckCircle, 
-  AlertCircle, ChevronRight, Activity, TrendingUp,
-  Calendar, ArrowUpRight,
-  Filter,
-  AlertTriangle,
-  ArrowRight,
-  Stethoscope
+  ClipboardCheck, Filter, CheckCircle,
 } from 'lucide-react';
 import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, 
-  Tooltip, ResponsiveContainer, BarChart, Bar, Legend
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, 
+  Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import { APP_CONFIG } from '../../utils/constant';
 
-// Menggunakan aset yang sama agar konsisten
-import bakteriIcon from '../../assets/bakteri.png'; 
-
 const API_BASE_URL = APP_CONFIG.API_HOST;
 
-// --- DATA DUMMY (Konteks: Validasi Dokter) ---
+const PRIORITY_LABELS = {
+  high: { label: 'Sangat prioritas', className: 'bg-red-50 text-red-700 border border-red-100' },
+  medium: { label: 'Penting', className: 'bg-amber-50 text-amber-700 border border-amber-100' },
+  low: { label: 'Belum prioritas', className: 'bg-slate-50 text-slate-600 border border-slate-200' },
+};
 
-// 1. Filter: HARI INI (Performa Validasi per Jam)
-const dataHariIni = [
-  { name: '09:00', pending: 4, validated: 2 },
-  { name: '11:00', pending: 6, validated: 5 },
-  { name: '13:00', pending: 3, validated: 6 },
-  { name: '15:00', pending: 5, validated: 4 },
-];
+const toSortableDate = (value) => {
+  if (!value) return null;
+  const raw = String(value).trim();
+  const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const d = new Date(normalized);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
 
-// 2. Filter: HARIAN
-const dataHarian = [
-  { name: 'Sen', pending: 5, validated: 15 },
-  { name: 'Sel', pending: 8, validated: 12 },
-  { name: 'Rab', pending: 4, validated: 20 },
-  { name: 'Kam', pending: 6, validated: 18 },
-  { name: 'Jum', pending: 10, validated: 8 }, 
-  { name: 'Sab', pending: 2, validated: 5 },
-];
+const getPriorityLevel = (item) => {
+  const time = item?.tanggal_upload || item?.uploaded_at || item?.earliest_upload;
+  const dateObj = toSortableDate(time);
+  if (!dateObj) return null;
+  const diff = Math.max(0, Math.floor((Date.now() - dateObj.getTime()) / 60000));
+  if (diff <= 5) return 'low';
+  if (diff <= 15) return 'medium';
+  return 'high';
+};
 
-// 3. Filter: MINGGUAN
-const dataMingguan = [
-  { name: 'Mg 1', pending: 20, validated: 80 },
-  { name: 'Mg 2', pending: 15, validated: 95 },
-  { name: 'Mg 3', pending: 25, validated: 85 },
-  { name: 'Mg 4', pending: 10, validated: 110 },
-];
+const getBarColor = (entry) => {
+  if (entry.masuk > 0 && entry.selesai === 0) return '#ef4444';
+  if (entry.masuk > entry.selesai * 2) return '#f59e0b';
+  return '#22c55e';
+};
 
-// 4. Filter: TAHUNAN
-const dataTahunan = [
-  { name: '2023', pending: 150, validated: 2000 },
-  { name: '2024', pending: 120, validated: 2400 },
-  { name: '2025', pending: 80, validated: 3100 },
-];
+const getTrend = (data, key) => {
+  if (!data || data.length < 2) return null;
+  const vals = data.map(d => d[key] || 0);
+  const last = vals[vals.length - 1];
+  const prev = vals[vals.length - 2];
+  if (prev === 0) return last > 0 ? { direction: 'up', value: 100, last } : null;
+  const change = ((last - prev) / prev) * 100;
+  return {
+    direction: change > 5 ? 'up' : change < -5 ? 'down' : 'stable',
+    value: Math.abs(Math.round(change)),
+    last,
+    prev,
+  };
+};
 
-
-
-// --- KOMPONEN KARTU STATISTIK (Reusable) ---
-const StatCard = ({ title, value, subtext, icon: Icon, imageSrc, color, bg, border }) => (
-  <div className={`bg-white p-6 rounded-xl shadow-sm border ${border || 'border-gray-100'} flex items-start justify-between hover:shadow-md transition-shadow`}>
-    <div>
-      <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">{title}</p>
-      <h3 className="text-2xl font-bold text-gray-800">{value}</h3>
-      <p className="text-xs text-gray-400 mt-1">{subtext}</p>
-    </div>
-    
-    <div className={`p-3 rounded-full ${bg} flex items-center justify-center w-14 h-14`}>
-      {imageSrc ? (
-        <img src={imageSrc} alt="Icon" className="w-8 h-8 object-contain opacity-90" />
-      ) : (
-        <Icon size={24} className={color} />
-      )}
-    </div>
-  </div>
-);
+const TrendIndicator = ({ trend, label, reverse }) => {
+  if (!trend) return null;
+  const diff = (trend.current ?? 0) - (trend.previous ?? 0);
+  if (diff === 0) {
+    return <span className="text-[11px] text-gray-400 font-medium" title={label}>→ 0</span>;
+  }
+  const isUp = diff > 0;
+  const isGood = reverse ? !isUp : isUp;
+  const color = isGood ? 'text-green-600' : 'text-red-600';
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-[11px] font-bold ${color}`} title={label}>
+      {isUp ? '↑' : '↓'} {Math.abs(diff)}
+    </span>
+  );
+};
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [filter, setFilter] = useState('Harian');
-  const [validationQueue, setValidationQueue] = useState([]);
+  const [filter, setFilter] = useState('Hari Ini');
+  const [queueData, setQueueData] = useState([]);
   const [chartData, setChartData] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isChartLoading, setIsChartLoading] = useState(true);
 
   useEffect(() => {
-    const fetchChartData = async () => {
+    const fetchQueue = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/doctor/doctor-queue`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...authService.getAuthorizationHeader(),
+          },
+        });
+        if (response.status === 401) {
+          authService.clearSession();
+          navigate('/login');
+          return;
+        }
+        const result = await response.json();
+        const payload = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : [];
+        setQueueData(payload);
+      } catch (error) {
+        console.error('Gagal mengambil antrean:', error);
+        setQueueData([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchQueue();
+  }, [navigate]);
+
+  useEffect(() => {
+    const fetchChart = async () => {
       setIsChartLoading(true);
       try {
         const response = await fetch(`${API_BASE_URL}/api/doctor/dashboard-chart?filter=${filter}`, {
@@ -95,291 +121,201 @@ const Dashboard = () => {
             ...authService.getAuthorizationHeader(),
           },
         });
-        if (response.status === 401) {
-          authService.clearSession();
-          navigate('/login');
-          return;
-        }
         if (response.ok) {
           const data = await response.json();
           setChartData(data);
+        } else {
+          setChartData([]);
         }
       } catch (error) {
         console.error('Gagal mengambil data chart:', error);
+        setChartData([]);
       } finally {
         setIsChartLoading(false);
       }
     };
-    fetchChartData();
+    fetchChart();
   }, [filter]);
 
-  useEffect(() => {
-    const fetchQueue = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/doctor/doctor-queue`, {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-            ...authService.getAuthorizationHeader(),
-          },
-        });
+  const queueCount = queueData.length;
 
-        if (response.status === 401) {
-          authService.clearSession();
-          navigate('/login');
-          return;
-        }
+  const selesaiHariIni = Array.isArray(chartData)
+    ? chartData.reduce((sum, t) => sum + (t.validated || t.selesai || 0), 0)
+    : 0;
+  const trendSelesai = getTrend(chartData, 'validated') || getTrend(chartData, 'selesai');
 
-        if (!response.ok) {
-          setValidationQueue([]);
-          return;
-        }
+  const trendAntrean = getTrend(
+    chartData.map(d => ({ ...d, pending: (d.masuk || 0) - (d.selesai || d.validated || 0) })),
+    'pending'
+  );
 
-        const result = await response.json();
-        const payload = Array.isArray(result)
-          ? result
-          : Array.isArray(result?.data)
-            ? result.data
-            : [];
+  const sortedQueue = [...queueData].sort((a, b) => {
+    const aPrio = getPriorityLevel(a);
+    const bPrio = getPriorityLevel(b);
+    const order = { high: 0, medium: 1, low: 2 };
+    const diff = (order[aPrio] ?? 2) - (order[bPrio] ?? 2);
+    if (diff !== 0) return diff;
+    const aTime = toSortableDate(a.earliest_upload || a.tanggal_upload)?.getTime() ?? Infinity;
+    const bTime = toSortableDate(b.earliest_upload || b.tanggal_upload)?.getTime() ?? Infinity;
+    return aTime - bTime;
+  });
 
-        const mapped = payload
-          .map((item) => {
-            const dateStr = item.earliest_upload;
-            const diff = dateStr ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000) : 0;
-            const urgency = diff > 15 ? 'high' : diff > 5 ? 'medium' : 'low';
-            return {
-              id: item?.specimens?.[0]?.id_specimen ?? item?.id_specimen ?? item?.specimen_id ?? item?.id,
-              name: item?.nama_pasien || item?.patient_name || '-',
-              result: item?.hasil_gram || 'Menunggu Validasi',
-              confidence: item?.confidence ? `${item.confidence}%` : '-',
-              urgency,
-              sortTime: dateStr ? new Date(dateStr).getTime() : 0,
-            };
-          })
-          .sort((a, b) => {
-            const order = { high: 0, medium: 1, low: 2 };
-            const d = order[a.urgency] - order[b.urgency];
-            return d !== 0 ? d : a.sortTime - b.sortTime;
-          });
+  const getUploadTime = (item) =>
+    item?.earliest_upload || item?.tanggal_upload || item?.uploaded_at || '-';
 
-        setValidationQueue(mapped);
-      } catch (error) {
-        console.error('Gagal mengambil antrean validasi dokter:', error);
-        setValidationQueue([]);
-      }
-    };
-
-    fetchQueue();
-  }, [navigate]);
-
-  const queueCount = validationQueue.length;
-
-  const goToValidationDetail = (specimenId) => {
-    if (!specimenId) {
-      navigate('/doctor/validation');
-      return;
-    }
-    navigate(`/doctor/validation/${specimenId}`);
-  };
-
-  const getChartData = () => {
-    if (chartData && chartData.length > 0) return chartData;
-    switch (filter) {
-      case 'Hari Ini': return dataHariIni;
-      case 'Harian': return dataHarian;
-      case 'Mingguan': return dataMingguan;
-      case 'Bulanan': return [
-        { name: 'Jan', pending: 15, validated: 90 },
-        { name: 'Feb', pending: 20, validated: 110 },
-        { name: 'Mar', pending: 12, validated: 130 },
-        { name: 'Apr', pending: 18, validated: 105 },
-        { name: 'Mei', pending: 25, validated: 125 },
-        { name: 'Jun', pending: 14, validated: 140 },
-        { name: 'Jul', pending: 19, validated: 130 },
-        { name: 'Agt', pending: 22, validated: 135 },
-        { name: 'Sep', pending: 15, validated: 150 },
-        { name: 'Okt', pending: 10, validated: 165 },
-        { name: 'Nov', pending: 17, validated: 145 },
-        { name: 'Des', pending: 12, validated: 170 },
-      ];
-      case 'Tahunan': return dataTahunan;
-      default: return dataHarian;
-    }
-  };
+  const getFirstSpecimenId = (item) =>
+    item?.specimens?.[0]?.id_specimen || null;
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
+    <div className="h-full flex flex-col bg-slate-50/80 p-4 rounded-2xl gap-6 overflow-hidden">
       
       {/* HEADER */}
-      <div className="flex justify-between items-end">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Dashboard Dokter</h1>
-          <p className="text-gray-500 mt-1">Validasi hasil klasifikasi dan tinjauan medis</p>
-        </div>
+      <div className="shrink-0">
+        <h1 className="text-2xl font-bold text-gray-800">Dashboard Dokter</h1>
+        <p className="text-gray-500 mt-1">Validasi hasil klasifikasi dan tinjauan medis.</p>
       </div>
 
-      {/* 1. STATISTIK UTAMA */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* KARTU 1: Menunggu Validasi (Paling Kritis) */}
-        <StatCard 
-          title="Menunggu Validasi" 
-          value={`${queueCount} Pasien`} 
-          subtext="Belum Divalidasi"
-          icon={ClipboardCheck} 
-          color="text-orange-600" 
-          bg="bg-orange-50"
-          border="border-orange-100" // Highlight border agar mencolok
-        />
-        
-        {/* KARTU 2: Positif Dikonfirmasi */}
-        <StatCard 
-          title="Positif Tervalidasi" 
-          value="85 Kasus" 
-          subtext="Bulan ini"
-          imageSrc={bakteriIcon} 
-          bg="bg-teal-50" // Ganti ke Teal/Hijau Medis
-        />
-        
-        {/* KARTU 3: Negatif Dikonfirmasi */}
-        <StatCard 
-          title="Negatif Tervalidasi" 
-          value="42 Kasus" 
-          subtext="Bulan ini"
-          imageSrc={bakteriIcon} 
-          bg="bg-rose-50" // Merah muda lembut
-        />
-      </div>
-
-      {/* 2. AREA VISUALISASI DATA */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* KIRI: Grafik Aktivitas Validasi (Area Chart) */}
-        {/* Menggunakan Area Chart agar beda nuansa dengan Bar Chart Analis */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          
-          <div className="flex justify-between items-center mb-6">
-            <div>
-                <h3 className="font-bold text-gray-800">Aktivitas Validasi</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Sisa Antrean vs Selesai Divalidasi</p>
-            </div>
-            
-            {/* Filter Dropdown */}
-            <div className="relative">
-                <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                <select 
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                    className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer hover:bg-gray-100 transition-colors"
-                >
-                    <option value="Hari Ini">Hari Ini</option>
-                    <option value="Harian">Harian</option>
-                    <option value="Mingguan">Mingguan</option>
-                    <option value="Bulanan">Bulanan</option>
-                    <option value="Tahunan">Tahunan</option>
-                </select>
-            </div>
-          </div>
-          
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={getChartData()} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorValidated" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorPending" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.2}/>
-                    <stop offset="95%" stopColor="#94a3b8" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 11, fill: '#9CA3AF'}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 11, fill: '#9CA3AF'}} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                />
-                
-                {/* Area Hijau = Sudah Divalidasi */}
-                <Area 
-                  type="monotone" 
-                  dataKey="validated" 
-                  name="Tervalidasi" 
-                  stroke="#3B82F6" 
-                  fillOpacity={1} 
-                  fill="url(#colorValidated)" 
-                  strokeWidth={2}
-                />
-                
-                {/* Area Kuning = Pending (Sisa beban kerja) */}
-                <Area 
-                    type="monotone" 
-                    dataKey="pending" 
-                    name="Menunggu" 
-                  stroke="#94a3b8" 
-                    fillOpacity={1} 
-                    fill="url(#colorPending)" 
-                    strokeWidth={2}
-                    strokeDasharray="4 4"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* KANAN: Daftar Tugas Validasi */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-bold text-gray-800">Antrean Validasi</h3>
-            <span className="text-xs font-bold bg-orange-100 text-orange-700 px-2 py-1 rounded-full flex items-center gap-1">
-              <AlertTriangle size={10} /> {queueCount} Menunggu
-            </span>
-          </div>
-          
-          <div className="flex-1 space-y-3 overflow-y-auto max-h-[300px] pr-1 scrollbar-thin scrollbar-thumb-gray-200">
-            {validationQueue.map((patient) => (
-              <div key={patient.id} className="p-4 border border-gray-100 rounded-xl hover:border-teal-200 hover:shadow-md transition-all group bg-white">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-sm font-bold text-gray-800">{patient.name}</p>
-                    {patient.urgency === 'high' && (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-red-600 mt-1">
-                        <AlertTriangle size={10} /> Prioritas Tinggi
-                      </span>
-                    )}
-                    {patient.urgency === 'medium' && (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-yellow-600 mt-1">
-                        <Clock size={10} /> Prioritas Sedang
-                      </span>
-                    )}
-                  </div>
-                  <span className={`text-[10px] px-2 py-1 rounded font-bold ${
-                      patient.result === 'Gram Positif' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'
-                  }`}>
-                    {patient.result}
-                  </span>
-                </div>
-
-                <div className="mt-4 flex items-center justify-end">
-                    <button
-                      onClick={() => goToValidationDetail(patient.id)}
-                      className="text-xs bg-teal-600 text-white px-3 py-1.5 rounded-lg shadow-sm hover:bg-teal-700 transition-colors flex items-center gap-1 font-medium w-full justify-center"
-                    >
-                        <ClipboardCheck size={14} /> Periksa & Validasi
-                    </button>
-                </div>
-              </div>
-            ))}
-          </div>
-          
-          <div className="mt-4 pt-4 border-t border-gray-50 text-center">
-            <p className="text-xs text-gray-400">
-                Data real-time dari hasil klasifikasi Analis.
+      {/* STAT CARDS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 shrink-0">
+        <div className="bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 p-6 flex items-start justify-between">
+          <div>
+            <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">Antrean Validasi</p>
+            <h3 className="text-2xl font-bold text-gray-800">
+              {isLoading ? '...' : `${queueCount} Pasien`}
+            </h3>
+            <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
+              Belum divalidasi
+              <TrendIndicator trend={trendAntrean} label="Perubahan antrean validasi" reverse />
             </p>
           </div>
+          <div className="p-3 rounded-full bg-orange-50 flex items-center justify-center w-14 h-14">
+            <ClipboardCheck size={24} className="text-orange-600" />
+          </div>
         </div>
 
+        <div className="bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 p-6 flex items-start justify-between">
+          <div>
+            <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">Selesai Hari Ini</p>
+            <h3 className="text-2xl font-bold text-gray-800">
+              {isChartLoading ? '...' : `${selesaiHariIni} Spesimen`}
+            </h3>
+            <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
+              Tervalidasi hari ini
+              <TrendIndicator trend={trendSelesai} label="Perubahan validasi" />
+            </p>
+          </div>
+          <div className="p-3 rounded-full bg-teal-50 flex items-center justify-center w-14 h-14">
+            <CheckCircle size={24} className="text-teal-600" />
+          </div>
+        </div>
+      </div>
+
+      {/* TREN + ANTREAN */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
+
+        {/* TREN CHART */}
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 p-5 flex flex-col h-full overflow-hidden">
+          <div className="flex items-center justify-between mb-4 shrink-0">
+            <div>
+              <h3 className="font-bold text-gray-800">Tren Validasi</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Sisa antrean vs selesai divalidasi ({filter})</p>
+            </div>
+            <div className="relative">
+              <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="pl-9 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer hover:bg-gray-100 transition-colors"
+              >
+                <option value="Hari Ini">Hari Ini</option>
+                <option value="Harian">Harian</option>
+                <option value="Mingguan">Mingguan</option>
+                <option value="Bulanan">Bulanan</option>
+                <option value="Tahunan">Tahunan</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0 relative">
+            {isChartLoading ? (
+              <div className="flex items-center justify-center h-full text-xs text-gray-400">Memuat...</div>
+            ) : (
+              <div className="absolute inset-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9CA3AF' }} dy={8} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9CA3AF' }} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                      formatter={(value, name) => [
+                        `${value} spesimen`,
+                        name === 'validated' ? 'Tervalidasi' : 'Menunggu'
+                      ]}
+                    />
+                    <Bar dataKey="validated" name="validated" fill="#3B82F6" barSize={20} radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="pending" name="pending" barSize={20} radius={[4, 4, 0, 0]}>
+                      {chartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={getBarColor(entry)} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ANTREAN LIST - DIBATASI 4 ITEM MAKSIMAL (max-h-[300px]) */}
+        <div className="bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 overflow-hidden flex flex-col h-full">
+          <div className="p-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+            <div>
+              <h3 className="font-bold text-gray-800 text-sm">Antrean Validasi</h3>
+              <p className="text-[10px] text-gray-400 mt-0.5">Prioritas waktu tunggu</p>
+            </div>
+            <button
+              onClick={() => navigate('/doctor/validation')}
+              className="text-[10px] text-blue-600 hover:text-blue-700 font-medium"
+            >
+              Semua →
+            </button>
+          </div>
+
+          {/* PERBAIKAN: max-h-[300px] akan mengunci tingginya persis untuk menampung ~4 item pasien */}
+          <div className="divide-y divide-gray-50 flex-1 overflow-y-auto max-h-[250px] pr-1">
+            {isLoading ? (
+              <div className="p-6 text-center text-xs text-gray-400">Memuat...</div>
+            ) : sortedQueue.length > 0 ? (
+              sortedQueue.map((patient, idx) => {
+                const priority = getPriorityLevel(patient);
+                const badge = PRIORITY_LABELS[priority];
+                return (
+                  <div key={patient.id_pasien || `p-${idx}`} className="p-3 hover:bg-blue-50/30 transition-colors">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-xs font-bold text-gray-800 truncate max-w-[120px]">{patient.nama_pasien}</p>
+                      <span className="text-[10px] text-gray-400 shrink-0">{getUploadTime(patient)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      {badge ? (
+                        <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded-full ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      ) : <span />}
+                      <button
+                        onClick={() => navigate(`/doctor/validation/${getFirstSpecimenId(patient)}`)}
+                        className="text-[10px] bg-primary hover:bg-blue-700 text-white px-3 py-1 rounded-lg font-bold transition-all active:scale-95"
+                      >
+                        Validasi
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="p-6 text-center text-xs text-gray-400">Tidak ada antrean.</div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

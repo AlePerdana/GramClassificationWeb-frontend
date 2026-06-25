@@ -55,6 +55,8 @@ const Dashboard = () => {
   const [isQueueLoading, setIsQueueLoading] = useState(true);
   const [filter, setFilter] = useState('Hari Ini');
   const [statsData, setStatsData] = useState({ throughput: [] });
+  const [chartData, setChartData] = useState([]);
+  const [isChartLoading, setIsChartLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -82,6 +84,34 @@ const Dashboard = () => {
     };
     fetchStats();
   }, [API_BASE_URL, filter, navigate]);
+
+  // Fetch chart data (sisa antrean vs selesai proses)
+  useEffect(() => {
+    const fetchChart = async () => {
+      setIsChartLoading(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/analyst/dashboard-chart?filter=${filter}`, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...authService.getAuthorizationHeader(),
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setChartData(data);
+        } else {
+          setChartData([]);
+        }
+      } catch (error) {
+        console.error('Gagal mengambil data chart:', error);
+        setChartData([]);
+      } finally {
+        setIsChartLoading(false);
+      }
+    };
+    fetchChart();
+  }, [filter]);
 
   useEffect(() => {
     const fetchPatients = async () => {
@@ -148,8 +178,8 @@ const Dashboard = () => {
     : 0;
 
   const getBarColor = (entry) => {
-    if (entry.diterima > 0 && entry.terkirim === 0) return '#ef4444';
-    if (entry.diterima > entry.terkirim * 2) return '#f59e0b';
+    if (entry.masuk > 0 && entry.selesai === 0) return '#ef4444';
+    if (entry.masuk > entry.selesai * 2) return '#f59e0b';
     return '#22c55e';
   };
 
@@ -214,8 +244,8 @@ const Dashboard = () => {
         <div className="lg:col-span-2 bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 p-5 flex flex-col h-full overflow-hidden">
           <div className="flex items-center justify-between mb-4 shrink-0">
             <div>
-              <h3 className="font-bold text-gray-800">Tren Pemrosesan</h3>
-              <p className="text-xs text-gray-400 mt-0.5">Spesimen diterima vs terkirim ke dokter ({filter})</p>
+              <h3 className="font-bold text-gray-800">Aktivitas Pemrosesan</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Sisa antrean vs selesai diproses ({filter})</p>
             </div>
             <div className="relative">
               <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
@@ -235,23 +265,27 @@ const Dashboard = () => {
 
           <div className="flex-1 min-h-0 relative">
             <div className="absolute inset-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={statsData.throughput} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9CA3AF' }} dy={8} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9CA3AF' }} />
-                <Tooltip
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                  formatter={(value, name) => [`${value} spesimen`, name === 'diterima' ? 'Diterima' : 'Terkirim']}
-                />
-                <Bar dataKey="diterima" name="diterima" fill="#3B82F6" barSize={20} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="terkirim" name="terkirim" barSize={20} radius={[4, 4, 0, 0]}>
-                  {statsData.throughput.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={getBarColor(entry)} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            {isChartLoading ? (
+              <div className="flex items-center justify-center h-full text-xs text-gray-400">Memuat...</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9CA3AF' }} dy={8} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9CA3AF' }} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                    formatter={(value, name) => [`${value} spesimen`, name === 'validated' ? 'Selesai Proses' : 'Sisa Antrean']}
+                  />
+                  <Bar dataKey="validated" name="validated" fill="#3B82F6" barSize={20} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="pending" name="pending" barSize={20} radius={[4, 4, 0, 0]}>
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={getBarColor(entry)} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
             </div>
           </div>
         </div>

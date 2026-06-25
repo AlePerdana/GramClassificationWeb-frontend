@@ -29,17 +29,43 @@ const getPriorityBadge = (level) => {
 };
 
 // --- KOMPONEN TREND INDICATOR MINI ---
-// Shows arrow + count difference (e.g. "↑ 5" or "↓ 3").
-// `reverse` flips the color logic: pass reverse=true when "up is bad" (queue/waiting).
-const TrendIndicator = ({ trend, label, reverse }) => {
+// `reverse` = up=red(bad), down=green(good) — untuk antrean.
+// `alwaysUp` = selalu hijau dengan jumlah saat ini — untuk selesai.
+// `flat` = abu-abu, tanpa warna — untuk status diam/tidak ada aktivitas.
+// `inflow`/`outflow` = menampilkan panah ganda untuk arus masuk/keluar.
+const TrendIndicator = ({ trend, label, reverse, alwaysUp, flat, inflow, outflow }) => {
+  if (alwaysUp && trend) {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-green-600" title={label}>
+        ↑ {trend.current ?? 0}
+      </span>
+    );
+  }
+
+  // Mode inflow/outflow: tampilkan kedua panah (↑ inflow ↓ outflow)
+  if (inflow !== undefined || outflow !== undefined) {
+    const hasInflow = (inflow ?? 0) > 0;
+    const hasOutflow = (outflow ?? 0) > 0;
+    if (!hasInflow && !hasOutflow) {
+      return <span className="text-[11px] text-gray-400 font-medium">→ 0</span>;
+    }
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-bold" title={label}>
+        {hasInflow && <span className="text-red-600">↑{inflow}</span>}
+        {hasOutflow && <span className="text-green-600">↓{outflow}</span>}
+      </span>
+    );
+  }
+
   if (!trend) return null;
   const diff = (trend.current ?? 0) - (trend.previous ?? 0);
-  if (diff === 0) {
-    return <span className="text-[11px] text-gray-400 font-medium" title={label}>→ 0</span>;
+
+  // flat = abu-abu tanpa perubahan
+  if (flat || diff === 0) {
+    return <span className="text-[11px] text-gray-400 font-medium" title={label}>→ {trend.current ?? 0}</span>;
   }
+
   const isUp = diff > 0;
-  // For reverse (queue): up=bad(red), down=good(green)
-  // For normal (diproses): up=good(green), down=bad(red)
   const isGood = reverse ? !isUp : isUp;
   const color = isGood ? 'text-green-600' : 'text-red-600';
   return (
@@ -171,11 +197,9 @@ const Dashboard = () => {
       return order[a.priority] - order[b.priority];
     });
 
-  const queueCount = waitingQueue.length + waitingValidationPatients.length;
+  const queueCount = waitingQueue.length;
   const waitingCount = waitingValidationPatients.length;
-  const totalDiproses = Array.isArray(statsData.throughput)
-    ? statsData.throughput.reduce((sum, t) => sum + (t.diterima || 0), 0)
-    : 0;
+  const totalDiproses = statsData?.validated_count ?? 0;
 
   const getBarColor = (entry) => {
     if (entry.masuk > 0 && entry.selesai === 0) return '#ef4444';
@@ -200,7 +224,7 @@ const Dashboard = () => {
             <h3 className="text-2xl font-bold text-gray-800">{queueCount} Pasien</h3>
             <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
               Menunggu diproses
-              <TrendIndicator trend={statsData?.trends?.pending} label="Perubahan antrean pending" reverse />
+              <TrendIndicator label="Arus antrean pending" inflow={waitingQueue.length} outflow={waitingValidationPatients.length} />
             </p>
           </div>
           <div className="p-3 rounded-full bg-amber-50 flex items-center justify-center w-14 h-14">
@@ -214,7 +238,7 @@ const Dashboard = () => {
             <h3 className="text-2xl font-bold text-gray-800">{waitingCount} Pasien</h3>
             <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
               Menunggu validasi dokter
-              <TrendIndicator trend={statsData?.trends?.waiting} label="Perubahan antrean dokter" reverse />
+              <TrendIndicator label="Arus antrean dokter" inflow={waitingValidationPatients.length} outflow={statsData?.validated_count ?? 0} />
             </p>
           </div>
           <div className="p-3 rounded-full bg-blue-50 flex items-center justify-center w-14 h-14">
@@ -224,11 +248,11 @@ const Dashboard = () => {
 
         <div className="bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 p-6 flex items-start justify-between">
           <div>
-            <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">Diproses</p>
-            <h3 className="text-2xl font-bold text-gray-800">{totalDiproses} Spesimen</h3>
+            <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">Selesai Proses</p>
+            <h3 className="text-2xl font-bold text-gray-800">{totalDiproses} Pasien</h3>
             <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
-              Periode {filter.toLowerCase()}
-              <TrendIndicator trend={statsData?.trends?.diproses} label="Perubahan spesimen diproses" />
+              Tervalidasi dokter
+              <TrendIndicator trend={statsData?.trends?.diproses} label="Total tervalidasi" flat />
             </p>
           </div>
           <div className="p-3 rounded-full bg-teal-50 flex items-center justify-center w-14 h-14">
@@ -245,7 +269,7 @@ const Dashboard = () => {
           <div className="flex items-center justify-between mb-4 shrink-0">
             <div>
               <h3 className="font-bold text-gray-800">Aktivitas Pemrosesan</h3>
-              <p className="text-xs text-gray-400 mt-0.5">Sisa antrean vs selesai diproses ({filter})</p>
+              <p className="text-xs text-gray-400 mt-0.5">Sisa antrean vs selesai diproses (pasien) ({filter})</p>
             </div>
             <div className="relative">
               <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
@@ -275,7 +299,7 @@ const Dashboard = () => {
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9CA3AF' }} />
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                    formatter={(value, name) => [`${value} spesimen`, name === 'validated' ? 'Selesai Proses' : 'Sisa Antrean']}
+                    formatter={(value, name) => [`${value} pasien`, name === 'validated' ? 'Selesai Proses' : 'Sisa Antrean']}
                   />
                   <Bar dataKey="validated" name="validated" fill="#3B82F6" barSize={20} radius={[4, 4, 0, 0]} />
                   <Bar dataKey="pending" name="pending" barSize={20} radius={[4, 4, 0, 0]}>

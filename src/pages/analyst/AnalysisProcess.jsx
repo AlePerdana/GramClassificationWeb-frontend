@@ -1038,15 +1038,29 @@ const AnalysisProcess = () => {
 
       // Konversi koordinat backend (natural image px) -> koordinat display frontend
       const imageEl = imageElementRef.current;
-      // Gunakan imageMeta yang sudah diset di onLoad, bukan live DOM langsung
-      // (live DOM bisa berubah karena centerImageFor belum sempat jalan)
       const meta = imageMeta[activeImgIdx];
       const naturalW = meta?.naturalW || imageEl?.naturalWidth || 1;
       const naturalH = meta?.naturalH || imageEl?.naturalHeight || 1;
       const displayW = meta?.clientW || imageEl?.clientWidth || naturalW;
       const displayH = meta?.clientH || imageEl?.clientHeight || naturalH;
-      const scaleToDisplayX = displayW / naturalW;
-      const scaleToDisplayY = displayH / naturalH;
+
+      // Hitung area render aktual dengan letterbox offset, sama seperti buildNaturalRois
+      const imgRatio = naturalW / naturalH;
+      const containerRatio = displayW / displayH;
+
+      let renderW, renderH, offsetX = 0, offsetY = 0;
+      if (imgRatio > containerRatio) {
+        renderW = displayW;
+        renderH = displayW / imgRatio;
+        offsetY = (displayH - renderH) / 2;
+      } else {
+        renderH = displayH;
+        renderW = displayH * imgRatio;
+        offsetX = (displayW - renderW) / 2;
+      }
+
+      const scaleToDisplayX = renderW / naturalW;
+      const scaleToDisplayY = renderH / naturalH;
 
       // 4. Konversi data API ke dalam format Bounding Box Frontend
       const detectedRois = results.map((item, index) => {
@@ -1062,8 +1076,9 @@ const AnalysisProcess = () => {
         const height = Math.max(0, y2 - y1);
 
         // Ubah ke sistem koordinat gambar yang sedang dirender di layar
-        const displayX = x1 * scaleToDisplayX;
-        const displayY = y1 * scaleToDisplayY;
+        // Wajib menambahkan offset letterbox agar buildNaturalRois dapat membalikkannya dengan benar
+        const displayX = x1 * scaleToDisplayX + offsetX;
+        const displayY = y1 * scaleToDisplayY + offsetY;
         const displayWidth = width * scaleToDisplayX;
         const displayHeight = height * scaleToDisplayY;
 

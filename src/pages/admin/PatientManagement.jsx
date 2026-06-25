@@ -31,14 +31,15 @@ const normalizeWaktuMasuk = (value) => {
   return raw;
 };
 
-const generateNoRekamMedis = () => {
+const getRMPrefix = () => {
   const now = new Date();
   const pad = (num) => String(num).padStart(2, '0');
-  const y = now.getFullYear();
-  const m = pad(now.getMonth() + 1);
-  const d = pad(now.getDate());
+  return `RM-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-`;
+};
+
+const generateNoRekamMedis = () => {
   const rand = Math.floor(1000 + Math.random() * 9000);
-  return `RM-${y}${m}${d}-${rand}`;
+  return String(rand);
 };
 
 const PatientManagement = () => {
@@ -120,7 +121,7 @@ const PatientManagement = () => {
     setIsEditing(false);
     setEditId(null);
     setFormData({
-      id_pasien: '',
+      id_pasien: getRMPrefix(),
       nik: '',
       nama_lengkap: '',
       jenis_kelamin: 'Laki-Laki',
@@ -479,18 +480,30 @@ const PatientManagement = () => {
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase block mb-1">No. Rekam Medis (RM)</label>
               <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  required
-                  className="flex-1 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                  placeholder="4 digit terakhir, ex: 1234"
-                  value={formData.id_pasien}
-                  onChange={(e) => setFormData({ ...formData, id_pasien: e.target.value.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 20) })}
-                />
+                <div className="flex items-center flex-1 border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-500 overflow-hidden">
+                  <span className="px-3 py-2.5 bg-gray-100 text-gray-600 text-sm font-mono whitespace-nowrap border-r border-gray-300 select-none">
+                    {getRMPrefix()}
+                  </span>
+                  <input
+                    type="text"
+                    required
+                    className="flex-1 p-2.5 outline-none text-sm"
+                    placeholder="1234"
+                    maxLength={4}
+                    value={formData.id_pasien.replace(getRMPrefix(), '')}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+                      setFormData({ ...formData, id_pasien: `${getRMPrefix()}${digits}` });
+                    }}
+                  />
+                </div>
                 <button
                   type="button"
-                  onClick={() => setFormData((prev) => ({ ...prev, id_pasien: generateNoRekamMedis() }))}
-                  className="px-3 py-2.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 shadow-sm"
+                  onClick={() => {
+                    const rand = generateNoRekamMedis();
+                    setFormData((prev) => ({ ...prev, id_pasien: `${getRMPrefix()}${rand}` }));
+                  }}
+                  className="px-3 py-2.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 shadow-sm shrink-0"
                 >
                   Generate
                 </button>

@@ -111,15 +111,17 @@ const MedicalReport = () => {
       const isRejected = String(c.validation_gram || '').toLowerCase() === 'reject' ||
                          String(c.validation_bentuk || '').toLowerCase() === 'reject';
                          
-      if (!isRejected && gram && bentuk) {
+      if (!isRejected && gram) {
+        // Jika bentuk tidak terisi (AI klasifikasi belum divalidasi dokter), default ke Kokus
+        const effectiveBentuk = bentuk || 'Kokus';
         if (gram === 'Positif') {
-          if (bentuk === 'Kokus') gp_kokus++;
-          else if (bentuk === 'Batang') gp_batang++;
-          else if (bentuk === 'Spiral') gp_spiral++;
+          if (effectiveBentuk === 'Kokus') gp_kokus++;
+          else if (effectiveBentuk === 'Batang') gp_batang++;
+          else if (effectiveBentuk === 'Spiral') gp_spiral++;
         } else if (gram === 'Negatif') {
-          if (bentuk === 'Kokus') gn_kokus++;
-          else if (bentuk === 'Batang') gn_batang++;
-          else if (bentuk === 'Spiral') gn_spiral++;
+          if (effectiveBentuk === 'Kokus') gn_kokus++;
+          else if (effectiveBentuk === 'Batang') gn_batang++;
+          else if (effectiveBentuk === 'Spiral') gn_spiral++;
         }
       }
     });
@@ -260,6 +262,12 @@ const MedicalReport = () => {
               annotated_image_url: joinApiUrl(s.annotated_image_url || ''),
               main_image_url: joinApiUrl(s.main_image_url || ''),
             })));
+            // Store all_classifications from ALL specimens of this patient
+            const allCls = detailResult?.data?.all_classifications || detailResult?.all_classifications || [];
+            if (allCls.length > 0 && result?.classifications) {
+              // Merge all classifications into rawReport for combined counting
+              setRawReport(prev => prev ? { ...prev, classifications: allCls } : prev);
+            }
           }
         } catch {
           // Non-critical, report data is still available

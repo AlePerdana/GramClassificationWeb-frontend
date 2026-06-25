@@ -1,28 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ModelService } from '../../service/modelService';
 const modelService = new ModelService();
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { 
   Cpu, 
   Zap,
-  AlertTriangle,
-  TrendingUp,
-  Filter
+  RefreshCw,
+  Filter,
 } from 'lucide-react';
 import { 
-  AreaChart, 
-  Area, 
+  BarChart, 
+  Bar, 
   XAxis, 
   YAxis, 
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer,
-  BarChart, 
-  Bar, 
-  Legend
+  Legend,
+  Cell
 } from 'recharts';
-
-// Data fetched from API
 
 // --- KOMPONEN KARTU MODEL ---
 const ModelStatusCard = ({ type, modelName, status, metrics, icon: Icon, targetTab }) => (
@@ -75,14 +71,22 @@ const ModelStatusCard = ({ type, modelName, status, metrics, icon: Icon, targetT
 );
 
 const Dashboard = () => {
-  // State untuk Filter Dropdown
-  const [filter, setFilter] = useState('Harian');
+  const navigate = useNavigate();
   const [activeModels, setActiveModels] = useState({ detection: null, classification: null });
   const [modelsLoading, setModelsLoading] = useState(true);
-  const [trendData, setTrendData] = useState([]);
-  const [confidenceData, setConfidenceData] = useState([]);
-  const [trendLoading, setTrendLoading] = useState(false);
-  const [totals, setTotals] = useState({ total_classifications: 0, total_positif: 0, total_negatif: 0 });
+  const [confidenceData, setConfidenceData] = useState({ current: [], previous: [], drift: {} });
+  const [summary, setSummary] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState('Mingguan');
+
+  const FILTER_MAP = {
+    'Hari Ini': 1,
+    'Harian': 7,
+    'Mingguan': 30,
+    'Bulanan': 90,
+    'Tahunan': 365,
+  };
+  const getDaysForFilter = (f) => FILTER_MAP[f] || 30;
 
   useEffect(() => {
     const fetchActive = async () => {
@@ -113,53 +117,81 @@ const Dashboard = () => {
     fetchActive();
   }, []);
 
-  // Fetch trend data from API
-  const fetchTrend = async (period) => {
-    setTrendLoading(true);
+  // Fetch confidence & drift data
+  const fetchConfidenceData = async () => {
+    setLoading(true);
     try {
-      const raw = await modelService.getTrendData(period);
+      const days = getDaysForFilter(filter);
+      const raw = await modelService.getTrendData('daily', days);
 
-      // Normalize trend data keys (support various backends)
-      const trendRaw = Array.isArray(raw?.trend) ? raw.trend : [];
-      const trend = trendRaw.map(item => ({
-        name: item.name ?? item.period ?? item.date ?? '',
-        positif: item.positif ?? item.gram_positif ?? item.positive ?? 0,
-        negatif: item.negatif ?? item.gram_negatif ?? item.negative ?? 0,
-      }));
-      setTrendData(trend);
-
-      // Normalize confidence data keys
-      const confRaw = Array.isArray(raw?.confidence) ? raw.confidence : [];
-      const confidence = confRaw.map(item => ({
-        range: item.range ?? item.label ?? item.range_label ?? '',
-        count: item.count ?? item.value ?? item.total ?? 0,
-      }));
-      setConfidenceData(confidence);
-
-      setTotals(raw?.summary || {});
+      setConfidenceData({
+        current: Array.isArray(raw?.confidence_current) ? raw.confidence_current : [],
+        previous: Array.isArray(raw?.confidence_previous) ? raw.confidence_previous : [],
+        drift: raw?.drift || {},
+      });
+      setSummary(raw?.summary || {});
     } catch (err) {
-      console.error('Gagal memuat tren:', err);
-      setTrendData([]);
-      setConfidenceData([]);
+      console.error('Gagal memuat data distribusi confidence:', err);
+      setConfidenceData({ current: [], previous: [], drift: {} });
+      setSummary({});
     } finally {
-      setTrendLoading(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    const periodMap = { 'Harian': 'daily', 'Mingguan': 'weekly', 'Bulanan': 'monthly', 'Tahunan': 'yearly' };
-    fetchTrend(periodMap[filter] || 'daily');
+    fetchConfidenceData();
   }, [filter]);
 
-  const getChartData = () => trendData;
+  // Build chart data with side-by-side bars
+  const chartData = confidenceData.current.map((curr, idx) => {
+    const prev = confidenceData.previous[idx] || { range: curr.range, count: 0, percentage: 0 };
+    return {
+      range: curr.range,
+      current: curr.percentage,
+      previous: prev.percentage,
+      currentCount: curr.count,
+      previousCount: prev.count,
+      drift: confidenceData.drift[curr.range]?.delta_percentage || 0,
+    };
+  });
+
+  const BAR_COLORS = {
+    '90-100%': '#22c55e',
+    '80-90%': '#3b82f6',
+    '70-80%': '#f59e0b',
+    '< 70%': '#ef4444',
+  };
+
+  const handleBarClick = (data) => {
+    navigate('/admin/models', { state: { tab: 'classification' } });
+  };
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto bg-slate-50/80 p-4 rounded-2xl">
       
       {/* HEADER */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-800">Monitoring Model AI</h1>
-        <p className="text-gray-500 mt-1">Status real-time model Deteksi (YOLO) dan Klasifikasi (CNN)</p>
+      <div className="flex justify-between items-end">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Monitoring Model AI</h1>
+          <p className="text-gray-500 mt-1">Status real-time dan distribusi keyakinan model Deteksi (YOLO) dan Klasifikasi (CNN)</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer hover:bg-gray-100 transition-colors"
+            >
+              <option value="Hari Ini">Hari Ini</option>
+              <option value="Harian">Harian</option>
+              <option value="Mingguan">Mingguan</option>
+              <option value="Bulanan">Bulanan</option>
+              <option value="Tahunan">Tahunan</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       {/* 1. STATUS MODEL SECTION */}
@@ -197,100 +229,111 @@ const Dashboard = () => {
       </div>
       )}
 
-      {/* 2. STATISTIK HASIL & PERFORMA */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* 2. DISTRIBUSI KEYAKINAN MODEL */}
+      <div className="bg-white p-6 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h3 className="font-bold text-gray-800">Distribusi Keyakinan Model</h3>
+            <p className="text-xs text-gray-400 mt-1">
+              {loading ? 'Memuat...' : `${getDaysForFilter(filter)} hari terakhir vs periode sebelumnya (${summary.total_classifications_current || 0} klasifikasi)`}
+            </p>
+          </div>
+          <button
+            onClick={fetchConfidenceData}
+            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            title="Muat ulang data"
+          >
+            <RefreshCw size={16} />
+          </button>
+        </div>
         
-        {/* Kiri: TREN DETEKSI (Area Chart dengan Filter) */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h3 className="font-bold text-gray-800">Tren Deteksi</h3>
-              <p className="text-xs text-gray-400 mt-1">
-                {trendLoading ? 'Memuat...' : `${totals.total_classifications || 0} total klasifikasi (${filter})`}
-              </p>
-            </div>
-            
-            {/* DROPDOWN FILTER */}
-            <div className="relative">
-                <Filter size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                <select 
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                    className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer hover:bg-gray-100 transition-colors"
-                >
-                    <option value="Harian">Harian</option>
-                    <option value="Mingguan">Mingguan</option>
-                    <option value="Bulanan">Bulanan</option>
-                    <option value="Tahunan">Tahunan</option>
-                </select>
-            </div>
-          </div>
-          
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart key={filter} data={getChartData()}>
-                <defs>
-                  <linearGradient id="colorPositif" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorNegatif" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#EF4444" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#EF4444" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#9CA3AF'}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#9CA3AF'}} />
-                <Tooltip 
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                />
-                <Legend verticalAlign="top" height={36}/>
-                <Area 
-                  type="linear" 
-                  dataKey="positif" 
-                  name="Gram Positif" 
-                  stroke="#3B82F6" 
-                  strokeWidth={3} 
-                  fillOpacity={1} 
-                  fill="url(#colorPositif)" 
-                  animationDuration={1000}
-                />
-                <Area 
-                  type="linear" 
-                  dataKey="negatif" 
-                  name="Gram Negatif" 
-                  stroke="#EF4444" 
-                  strokeWidth={3} 
-                  fillOpacity={1} 
-                  fill="url(#colorNegatif)" 
-                  animationDuration={1000}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="h-80 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top: 20, right: 20, left: 0, bottom: 10 }}
+              onClick={(e) => {
+                if (e?.activeLabel) {
+                  const item = chartData.find(d => d.range === e.activeLabel);
+                  if (item) handleBarClick(item);
+                }
+              }}
+            >
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+              <XAxis 
+                dataKey="range" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 12, fill: '#6B7280' }}
+                dy={10}
+              />
+              <YAxis 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 11, fill: '#9CA3AF' }}
+                unit="%"
+                domain={[0, 100]}
+              />
+              <Tooltip 
+                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                formatter={(value, name) => [`${value}%`, name === 'current' ? 'Periode Saat Ini' : 'Periode Sebelumnya']}
+                labelFormatter={(label) => `Rentang: ${label}`}
+              />
+              <Legend 
+                verticalAlign="top" 
+                height={36}
+                formatter={(value) => value === 'current' ? '30 Hari Terakhir' : '30 Hari Sebelumnya'}
+              />
+              <Bar 
+                dataKey="previous" 
+                name="previous" 
+                fill="#E5E7EB" 
+                barSize={20}
+                radius={[4, 4, 0, 0]}
+              />
+              <Bar 
+                dataKey="current" 
+                name="current" 
+                barSize={20}
+                radius={[4, 4, 0, 0]}
+                className="cursor-pointer hover:opacity-80 transition-opacity"
+              >
+                {chartData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={BAR_COLORS[entry.range] || '#3B82F6'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
 
-        {/* Kanan: Quality Control (Confidence) */}
-        <div className="bg-white p-6 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 flex flex-col">
-          <h3 className="font-bold text-gray-800 mb-2">Kualitas Deteksi</h3>
-          <p className="text-xs text-gray-400 mb-6">Sebaran tingkat keyakinan (confidence) model</p>
-          
-          <div className="flex-1 min-h-[220px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={confidenceData} layout="vertical" margin={{ left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f0f0" />
-                <XAxis type="number" hide />
-                <YAxis dataKey="range" type="category" width={50} tick={{fontSize: 11}} />
-                <Tooltip cursor={{fill: '#f8fafc'}} />
-                <Bar dataKey="count" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={24} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Alert removed per request to free space */}
+        {/* Summary chips */}
+        <div className="flex flex-wrap items-center gap-4 mt-6 pt-4 border-t border-gray-100">
+          {chartData.map((item) => (
+            <button
+              key={item.range}
+              onClick={() => handleBarClick(item)}
+              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-all hover:shadow-sm ${
+                item.range === '< 70%' 
+                  ? 'bg-red-50 border-red-200 hover:border-red-400 text-red-700' 
+                  : item.range === '70-80%'
+                  ? 'bg-amber-50 border-amber-200 hover:border-amber-400 text-amber-700'
+                  : 'bg-gray-50 border-gray-200 hover:border-gray-400 text-gray-600'
+              }`}
+            >
+              <span className="font-medium">{item.range}</span>
+              <span className="font-bold">{item.current}%</span>
+              {item.drift !== 0 && (
+                <span className={`text-xs ${item.drift > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {item.drift > 0 ? '+' : ''}{item.drift.toFixed(1)}%
+                </span>
+              )}
+            </button>
+          ))}
+          <button
+            onClick={() => navigate('/admin/models', { state: { tab: 'classification' } })}
+            className="ml-auto text-xs text-blue-600 hover:text-blue-700 font-medium"
+          >
+            Konfigurasi Model →
+          </button>
         </div>
-
       </div>
     </div>
   );

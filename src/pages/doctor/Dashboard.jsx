@@ -42,35 +42,31 @@ const getBarColor = (entry) => {
   return '#22c55e';
 };
 
-const getTrend = (data, key) => {
-  if (!data || data.length < 2) return null;
-  const vals = data.map(d => d[key] || 0);
-  const last = vals[vals.length - 1];
-  const prev = vals[vals.length - 2];
-  if (prev === 0) return last > 0 ? { direction: 'up', value: 100, last } : null;
-  const change = ((last - prev) / prev) * 100;
-  return {
-    direction: change > 5 ? 'up' : change < -5 ? 'down' : 'stable',
-    value: Math.abs(Math.round(change)),
-    last,
-    prev,
-  };
-};
-
-const TrendIndicator = ({ trend, label, reverse }) => {
-  if (!trend) return null;
-  const diff = (trend.current ?? 0) - (trend.previous ?? 0);
-  if (diff === 0) {
-    return <span className="text-[11px] text-gray-400 font-medium" title={label}>→ 0</span>;
+// --- KOMPONEN TREND INDICATOR MINI ---
+// `inflow`/`outflow` = panah ganda: merah ↑ (menunggu), hijau ↓ (selesai).
+// `flat` = abu-abu tanpa perubahan.
+const TrendIndicator = ({ label, inflow, outflow, flat }) => {
+  // Mode inflow/outflow
+  if (inflow !== undefined || outflow !== undefined) {
+    const hasInflow = (inflow ?? 0) > 0;
+    const hasOutflow = (outflow ?? 0) > 0;
+    if (!hasInflow && !hasOutflow) {
+      return <span className="text-[11px] text-gray-400 font-medium">→ 0</span>;
+    }
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-bold" title={label}>
+        {hasInflow && <span className="text-red-600">↑{inflow}</span>}
+        {hasOutflow && <span className="text-green-600">↓{outflow}</span>}
+      </span>
+    );
   }
-  const isUp = diff > 0;
-  const isGood = reverse ? !isUp : isUp;
-  const color = isGood ? 'text-green-600' : 'text-red-600';
-  return (
-    <span className={`inline-flex items-center gap-0.5 text-[11px] font-bold ${color}`} title={label}>
-      {isUp ? '↑' : '↓'} {Math.abs(diff)}
-    </span>
-  );
+
+  // flat = abu-abu
+  if (flat !== undefined) {
+    return <span className="text-[11px] text-gray-400 font-medium" title={label}>→ {flat}</span>;
+  }
+
+  return null;
 };
 
 const Dashboard = () => {
@@ -142,12 +138,6 @@ const Dashboard = () => {
   const selesaiHariIni = Array.isArray(chartData)
     ? chartData.reduce((sum, t) => sum + (t.validated || t.selesai || 0), 0)
     : 0;
-  const trendSelesai = getTrend(chartData, 'validated') || getTrend(chartData, 'selesai');
-
-  const trendAntrean = getTrend(
-    chartData.map(d => ({ ...d, pending: (d.masuk || 0) - (d.selesai || d.validated || 0) })),
-    'pending'
-  );
 
   const sortedQueue = [...queueData].sort((a, b) => {
     const aPrio = getPriorityLevel(a);
@@ -185,7 +175,7 @@ const Dashboard = () => {
             </h3>
             <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
               Belum divalidasi
-              <TrendIndicator trend={trendAntrean} label="Perubahan antrean validasi" reverse />
+              <TrendIndicator label="Antrean validasi" inflow={queueCount} outflow={selesaiHariIni} />
             </p>
           </div>
           <div className="p-3 rounded-full bg-orange-50 flex items-center justify-center w-14 h-14">
@@ -201,7 +191,7 @@ const Dashboard = () => {
             </h3>
             <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
               Tervalidasi hari ini
-              <TrendIndicator trend={trendSelesai} label="Perubahan validasi" />
+              <TrendIndicator label="Total tervalidasi" flat={selesaiHariIni} />
             </p>
           </div>
           <div className="p-3 rounded-full bg-teal-50 flex items-center justify-center w-14 h-14">

@@ -217,7 +217,7 @@ const Dashboard = () => {
         <div className="lg:col-span-2 bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 p-5 flex flex-col h-full overflow-hidden">
           <div className="flex items-center justify-between mb-4 shrink-0">
             <div>
-              <h3 className="font-bold text-gray-800">Tren Validasi</h3>
+              <h3 className="font-bold text-gray-800">Aktivitas Validasi</h3>
               <p className="text-xs text-gray-400 mt-0.5">Sisa antrean vs selesai divalidasi ({filter})</p>
             </div>
             <div className="relative">

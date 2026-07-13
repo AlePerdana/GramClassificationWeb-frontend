@@ -13,6 +13,7 @@ const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 const AnalystPatientList = () => {
   const LEGACY_STATUS = {
     pending: 'Belum Diproses',
+    revision: 'Revisi Analis',
     waitingValidation: 'Menunggu Dokter'
   };
 
@@ -37,33 +38,53 @@ const AnalystPatientList = () => {
           return [];
         };
 
-        // ONLY fetch 'pending' patients as per user request (Waiting Validation and Selesai are in History)
-        const response = await fetch(`${API_BASE_URL}/patients?specimen_status=pending&include_no_specimen=true`, {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-            ...authHeaders,
-          },
-        });
+        // Fetch pending and revision patients
+        const [pendingResponse, revisionResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/patients?specimen_status=pending&include_no_specimen=true`, {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              ...authHeaders,
+            },
+          }),
+          fetch(`${API_BASE_URL}/patients?specimen_status=revision&include_no_specimen=false`, {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              ...authHeaders,
+            },
+          }),
+        ]);
 
-        if (response.status === 401) {
+        if (pendingResponse.status === 401 || revisionResponse.status === 401) {
           authService.clearSession();
           navigate('/login');
           return;
         }
 
-        const data = response.ok ? await response.json() : [];
-        const normalized = extractItems(data).map((p) => {
-          const queue_status = 'pending';
-          const priority = calculatePriority(p); // Adding own parameter for prioritas
+        const pendingData = pendingResponse.ok ? await pendingResponse.json() : [];
+        const revisionData = revisionResponse.ok ? await revisionResponse.json() : [];
+
+        const normalizeItems = (items, queueStatus) => extractItems(items).map((p) => {
+          const priority = calculatePriority(p);
           return {
             ...p,
-            queue_status,
+            queue_status: queueStatus,
             priority
           };
         });
 
-        setPatients(normalized);
+        const pendingNormalized = normalizeItems(pendingData, 'pending');
+        const revisionNormalized = normalizeItems(revisionData, 'revision');
+
+        // Merge and sort by waktu_masuk oldest first
+        const merged = [...pendingNormalized, ...revisionNormalized].sort((a, b) => {
+          const aTime = toSortableDate(getQueueTime(a));
+          const bTime = toSortableDate(getQueueTime(b));
+          return (aTime?.getTime() ?? Infinity) - (bTime?.getTime() ?? Infinity);
+        });
+
+        setPatients(merged);
       } catch (error) {
         console.error('Gagal mengambil data pasien:', error);
         setPatients([]);
@@ -89,8 +110,9 @@ const AnalystPatientList = () => {
   
   const getLegacyStatus = (patient) => {
     const status = getQueueStatus(patient);
-    // In this page, it will likely always be pending because we only fetch pending
-    return status === 'waiting_validation' ? LEGACY_STATUS.waitingValidation : LEGACY_STATUS.pending;
+    if (status === 'revision') return LEGACY_STATUS.revision;
+    if (status === 'waiting_validation') return LEGACY_STATUS.waitingValidation;
+    return LEGACY_STATUS.pending;
   };
 
   const getQueueTime = (patient) =>
@@ -277,12 +299,13 @@ const AnalystPatientList = () => {
                       {(() => {
                         const queueStatus = getQueueStatus(patient);
                         const patientStatus = getLegacyStatus(patient);
+                        const badgeClass = queueStatus === 'pending'
+                          ? 'bg-yellow-50 text-yellow-700 border border-yellow-100'
+                          : queueStatus === 'revision'
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : 'bg-green-50 text-green-700 border border-green-100';
                         return (
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center ${
-                        queueStatus === 'pending' 
-                          ? 'bg-yellow-50 text-yellow-700 border border-yellow-100' 
-                          : 'bg-green-50 text-green-700 border border-green-100'
-                      }`}>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center ${badgeClass}`}>
                         {patientStatus}
                       </span>
                         );

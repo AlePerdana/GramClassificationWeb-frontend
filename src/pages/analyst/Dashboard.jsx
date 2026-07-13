@@ -7,6 +7,7 @@ import {
   Users,
   ClipboardCheck,
   CheckCircle,
+  RotateCcw,
 } from 'lucide-react';
 import {
   BarChart,
@@ -37,7 +38,7 @@ const TrendIndicator = ({ trend, label, reverse, alwaysUp, flat, inflow, outflow
   if (alwaysUp && trend) {
     return (
       <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-green-600" title={label}>
-        ↑ {trend.current ?? 0}
+        ↑{trend.current ?? 0}
       </span>
     );
   }
@@ -62,7 +63,7 @@ const TrendIndicator = ({ trend, label, reverse, alwaysUp, flat, inflow, outflow
 
   // flat = abu-abu tanpa perubahan
   if (flat || diff === 0) {
-    return <span className="text-[11px] text-gray-400 font-medium" title={label}>→ {trend.current ?? 0}</span>;
+    return <span className="text-[11px] text-gray-400 font-medium" title={label}>→{trend.current ?? 0}</span>;
   }
 
   const isUp = diff > 0;
@@ -70,7 +71,7 @@ const TrendIndicator = ({ trend, label, reverse, alwaysUp, flat, inflow, outflow
   const color = isGood ? 'text-green-600' : 'text-red-600';
   return (
     <span className={`inline-flex items-center gap-0.5 text-[11px] font-bold ${color}`} title={label}>
-      {isUp ? '↑' : '↓'} {Math.abs(diff)}
+      {isUp ? '↑' : '↓'}{Math.abs(diff)}
     </span>
   );
 };
@@ -78,6 +79,7 @@ const TrendIndicator = ({ trend, label, reverse, alwaysUp, flat, inflow, outflow
 const Dashboard = () => {
   const [pendingPatients, setPendingPatients] = useState([]);
   const [waitingValidationPatients, setWaitingValidationPatients] = useState([]);
+  const [revisionPatients, setRevisionPatients] = useState([]);
   const [isQueueLoading, setIsQueueLoading] = useState(true);
   const [filter, setFilter] = useState('Hari Ini');
   const [statsData, setStatsData] = useState({ throughput: [] });
@@ -144,12 +146,16 @@ const Dashboard = () => {
       setIsQueueLoading(true);
       try {
         const authHeaders = authService.getAuthorizationHeader();
-        const [pendingRes, waitingRes] = await Promise.all([
+        const [pendingRes, waitingRes, revisionRes] = await Promise.all([
           fetch(`${API_BASE_URL}/patients?specimen_status=pending&include_no_specimen=true`, {
             method: 'GET',
             headers: { Accept: 'application/json', ...authHeaders },
           }),
           fetch(`${API_BASE_URL}/patients?specimen_status=waiting_validation&include_no_specimen=false`, {
+            method: 'GET',
+            headers: { Accept: 'application/json', ...authHeaders },
+          }),
+          fetch(`${API_BASE_URL}/patients?specimen_status=revision&include_no_specimen=false`, {
             method: 'GET',
             headers: { Accept: 'application/json', ...authHeaders },
           }),
@@ -163,9 +169,11 @@ const Dashboard = () => {
 
         const pendingData = pendingRes.ok ? await pendingRes.json() : [];
         const waitingData = waitingRes.ok ? await waitingRes.json() : [];
+        const revisionData = revisionRes.ok ? await revisionRes.json() : [];
 
         setPendingPatients(Array.isArray(pendingData?.data) ? pendingData.data : Array.isArray(pendingData) ? pendingData : []);
         setWaitingValidationPatients(Array.isArray(waitingData?.data) ? waitingData.data : Array.isArray(waitingData) ? waitingData : []);
+        setRevisionPatients(Array.isArray(revisionData?.data) ? revisionData.data : Array.isArray(revisionData) ? revisionData : []);
       } catch (error) {
         console.error('Gagal mengambil antrean pasien:', error);
         setPendingPatients([]);
@@ -199,6 +207,7 @@ const Dashboard = () => {
 
   const queueCount = waitingQueue.length;
   const waitingCount = waitingValidationPatients.length;
+  const revisionCount = revisionPatients.length;
   const totalDiproses = statsData?.validated_count ?? 0;
 
   const getBarColor = (entry) => {
@@ -217,7 +226,7 @@ const Dashboard = () => {
       </div>
 
       {/* STAT CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 shrink-0">
         <div className="bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 p-6 flex items-start justify-between">
           <div>
             <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">Antrean Pending</p>
@@ -234,7 +243,7 @@ const Dashboard = () => {
 
         <div className="bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 p-6 flex items-start justify-between">
           <div>
-            <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">Menunggu Dokter</p>
+            <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">Menunggu Validasi</p>
             <h3 className="text-2xl font-bold text-gray-800">{waitingCount} Pasien</h3>
             <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
               Menunggu validasi dokter
@@ -248,11 +257,25 @@ const Dashboard = () => {
 
         <div className="bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 p-6 flex items-start justify-between">
           <div>
+            <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">Revisi Analis</p>
+            <h3 className="text-2xl font-bold text-gray-800">{revisionCount} Pasien</h3>
+            <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
+              Menunggu perbaikan Anda
+              <TrendIndicator trend={statsData?.trends?.revision} label="Total revisi" reverse />
+            </p>
+          </div>
+          <div className="p-3 rounded-full bg-amber-50 flex items-center justify-center w-14 h-14">
+            <RotateCcw size={24} className="text-amber-600" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-md shadow-slate-300/40 border border-gray-200 p-6 flex items-start justify-between">
+          <div>
             <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">Selesai Proses</p>
             <h3 className="text-2xl font-bold text-gray-800">{totalDiproses} Pasien</h3>
             <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
               Tervalidasi dokter
-              <TrendIndicator trend={statsData?.trends?.diproses} label="Total tervalidasi" flat />
+              <TrendIndicator trend={statsData?.trends?.diproses} label="Total tervalidasi" />
             </p>
           </div>
           <div className="p-3 rounded-full bg-teal-50 flex items-center justify-center w-14 h-14">

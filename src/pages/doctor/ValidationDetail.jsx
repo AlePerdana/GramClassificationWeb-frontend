@@ -13,10 +13,17 @@ import {
   Table2,
   LayoutGrid,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  RotateCcw,
+  MessageSquare,
+  FileText,
+  Lock,
+  AlertTriangle
 } from 'lucide-react';
 import { APP_CONFIG } from '../../utils/constant';
 import NgrokImage from '../../components/common/NgrokImage';
+import InternalMessageThread from '../../components/common/InternalMessageThread';
+import Modal from '../../components/common/Modal';
 
 const API_HOST = APP_CONFIG.API_HOST;
 const SHAPE_OPTIONS = ['Kokus', 'Basil', 'Spiral'];
@@ -76,6 +83,13 @@ const ValidationDetail = () => {
 
   const [showModal, setShowModal] = useState(false);
   const [activeCrop, setActiveCrop] = useState(null);
+
+  // Tab & Revision State
+  const [activeTab, setActiveTab] = useState('notes'); // 'notes' | 'messages'
+  const [showRevisionModal, setShowRevisionModal] = useState(false);
+  const [revisionMessage, setRevisionMessage] = useState('');
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [unlockMessage, setUnlockMessage] = useState('');
   const [modalZoom, setModalZoom] = useState(1);
   const [modalPan, setModalPan] = useState({ x: 0, y: 0 });
   const [isInteracting, setIsInteracting] = useState(false);
@@ -288,6 +302,76 @@ const ValidationDetail = () => {
     }
   };
 
+  const handleRequestRevision = async () => {
+    if (!revisionMessage.trim()) {
+      setSubmitMessage('Pesan revisi wajib diisi.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${API_HOST}/api/doctor/request-revision/${resolvedSpecimenId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...authService.getAuthorizationHeader(),
+        },
+        body: JSON.stringify({ message: revisionMessage.trim() }),
+      });
+
+      if (response.status === 401) {
+        authService.clearSession();
+        navigate('/login');
+        return;
+      }
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result?.message || 'Gagal mengirim revisi.');
+      }
+
+      navigate('/doctor/validation');
+    } catch (err) {
+      setSubmitMessage(err.message || 'Terjadi kesalahan saat mengirim revisi.');
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUnlock = async () => {
+    setIsSubmitting(true);
+    try {
+      const payload = {};
+      if (unlockMessage.trim()) {
+        payload.message = unlockMessage.trim();
+      }
+      const response = await fetch(`${API_HOST}/api/doctor/unlock/${resolvedSpecimenId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...authService.getAuthorizationHeader(),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.status === 401) {
+        authService.clearSession();
+        navigate('/login');
+        return;
+      }
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result?.message || 'Gagal membatalkan validasi.');
+      }
+
+      navigate('/doctor/validation');
+    } catch (err) {
+      setSubmitMessage(err.message || 'Terjadi kesalahan saat membatalkan validasi.');
+      setIsSubmitting(false);
+    }
+  };
+
   if (isLoading) {
     return <div className="p-6 text-slate-600">Memuat detail spesimen...</div>;
   }
@@ -342,17 +426,54 @@ const ValidationDetail = () => {
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-        <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4 flex items-center gap-2">
-          <span className="w-1.5 h-4 bg-blue-600 rounded-full"></span> Catatan Dokter
-        </h3>
-        <textarea
-          className="w-full p-4 border border-slate-200 rounded-lg bg-slate-50 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none transition-all"
-          placeholder="Tambahkan catatan klinis atau observasi tambahan di sini..."
-          rows={3}
-          value={doctorNotes}
-          onChange={(e) => setDoctorNotes(e.target.value)}
-        />
+      {/* TABS: Catatan Dokter / Pesan Internal */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="border-b border-slate-200">
+          <div className="flex">
+            <button
+              onClick={() => setActiveTab('notes')}
+              className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 transition-colors ${
+                activeTab === 'notes'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <FileText size={16} /> Catatan Dokter
+            </button>
+            <button
+              onClick={() => setActiveTab('messages')}
+              className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 transition-colors ${
+                activeTab === 'messages'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <MessageSquare size={16} /> Pesan Internal
+            </button>
+          </div>
+        </div>
+
+        {activeTab === 'notes' ? (
+          <div className="p-6">
+            <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4 flex items-center gap-2">
+              <span className="w-1.5 h-4 bg-blue-600 rounded-full"></span> Catatan Klinis Dokter
+            </h3>
+            <textarea
+              className="w-full p-4 border border-slate-200 rounded-lg bg-slate-50 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none transition-all"
+              placeholder="Tambahkan catatan klinis atau observasi tambahan di sini..."
+              rows={3}
+              value={doctorNotes}
+              onChange={(e) => setDoctorNotes(e.target.value)}
+            />
+          </div>
+        ) : (
+          <div className="p-6">
+            <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4 flex items-center gap-2">
+              <MessageSquare size={16} /> Pesan Internal dengan Analis
+            </h3>
+            <InternalMessageThread specimenId={resolvedSpecimenId} />
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -375,7 +496,7 @@ const ValidationDetail = () => {
                 <LayoutGrid size={18} />
               </button>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <label className="flex items-center gap-2 cursor-pointer group">
                 <span className="text-xs font-medium text-slate-400 group-hover:text-blue-600 transition-colors whitespace-nowrap">
                   SATUSEHAT
@@ -390,6 +511,26 @@ const ValidationDetail = () => {
                   <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                 </div>
               </label>
+              {/* Kembalikan untuk Revisi — untuk status belum divalidasi */}
+              {String(specimenData?.validation_status || '').toLowerCase() !== 'validated' && (
+                <button
+                  onClick={() => setShowRevisionModal(true)}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 rounded-lg font-bold shadow-sm transition-all text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <RotateCcw size={16} /> Kembalikan Revisi
+                </button>
+              )}
+              {/* Batalkan Validasi — untuk status sudah divalidasi */}
+              {String(specimenData?.validation_status || '').toLowerCase() === 'validated' && (
+                <button
+                  onClick={() => setShowUnlockModal(true)}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 rounded-lg font-bold shadow-sm transition-all text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Lock size={16} className="text-yellow-600" /> Batalkan Validasi
+                </button>
+              )}
               <button
                 onClick={handleSubmitValidation}
                 disabled={isSubmitting || rows.length === 0}
@@ -678,6 +819,113 @@ const ValidationDetail = () => {
           {submitMessage}
         </div>
       ) : null}
+
+      {/* MODAL: Kembalikan untuk Revisi */}
+      <Modal
+        isOpen={showRevisionModal}
+        title="🔄 Kembalikan ke Analis"
+        onClose={() => {
+          setShowRevisionModal(false);
+          setRevisionMessage('');
+          setSubmitMessage('');
+        }}
+        footer={
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => {
+                setShowRevisionModal(false);
+                setRevisionMessage('');
+              }}
+              className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-lg text-sm font-semibold transition-colors"
+            >
+              Batal
+            </button>
+            <button
+              onClick={handleRequestRevision}
+              disabled={isSubmitting || !revisionMessage.trim()}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold transition-all active:scale-95 shadow-md flex items-center gap-2 disabled:bg-slate-300 disabled:cursor-not-allowed"
+            >
+              <RotateCcw size={16} /> Kirim Revisi
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600 leading-relaxed">
+            Data akan dikembalikan ke Analis untuk perbaikan. Status akan berubah menjadi
+            &quot;Revisi Analis&quot;.
+          </p>
+          <div>
+            <p className="text-xs font-semibold text-gray-500 mb-1.5">
+              Pesan revisi untuk Analis <span className="text-red-500">*</span>
+            </p>
+            <textarea
+              value={revisionMessage}
+              onChange={(e) => setRevisionMessage(e.target.value)}
+              placeholder="Bounding box kurang pas, tolong crop ulang..."
+              rows={4}
+              className={`w-full text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-100 outline-none resize-none ${
+                !revisionMessage.trim() && isSubmitting ? 'border-red-300 bg-red-50' : 'border-gray-200'
+              }`}
+            />
+            {!revisionMessage.trim() && (
+              <p className="text-xs text-red-500 mt-1">Pesan revisi wajib diisi</p>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      {/* MODAL: Batalkan Validasi */}
+      <Modal
+        isOpen={showUnlockModal}
+        title="🔓 Batalkan Validasi"
+        onClose={() => {
+          setShowUnlockModal(false);
+          setUnlockMessage('');
+          setSubmitMessage('');
+        }}
+        footer={
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => {
+                setShowUnlockModal(false);
+                setUnlockMessage('');
+              }}
+              className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-lg text-sm font-semibold transition-colors"
+            >
+              Batal
+            </button>
+            <button
+              onClick={handleUnlock}
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg text-sm font-bold transition-all active:scale-95 shadow-md flex items-center gap-2 disabled:bg-slate-300 disabled:cursor-not-allowed"
+            >
+              <Lock size={16} /> Ya, Batalkan
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+            <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-800">
+              Data akan kembali ke status revisi. Catatan klinis akan dihapus.
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-500 mb-1.5">
+              Alasan pembatalan validasi (opsional):
+            </p>
+            <textarea
+              value={unlockMessage}
+              onChange={(e) => setUnlockMessage(e.target.value)}
+              placeholder="Perlu dilakukan analisis ulang..."
+              rows={3}
+              className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 outline-none resize-none"
+            />
+          </div>
+        </div>
+      </Modal>
 
       {showModal && activeCrop && createPortal(
         <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col animate-in fade-in duration-200">

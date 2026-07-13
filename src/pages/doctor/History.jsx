@@ -64,7 +64,9 @@ const isValidatedItem = (item) => {
     Boolean(item?.tanggal_validasi) ||
     status === 'validated' ||
     status === 'tervalidasi' ||
-    status.includes('selesai')
+    status.includes('selesai') ||
+    status === 'revision' ||
+    status.includes('revisi')
   );
 };
 
@@ -127,6 +129,7 @@ const History = () => {
               patient: item?.nama_pasien || item?.nama_lengkap || '-',
               analyst: item?.analis_pengirim || item?.analyst || item?.analyst_name || '-',
               doctor: item?.dokter || item?.doctor || item?.doctor_name || '-',
+              status: item?.overall_status || item?.status || '',
               stats: {
                 pos: totalPos,
                 neg: totalNeg,
@@ -246,9 +249,13 @@ const History = () => {
 
                     {/* Kolom 5: Status Validasi */}
                     <td className="p-5 text-center">
-                      <span className="bg-green-50 text-green-700 px-2 py-1 rounded-full text-[10px] font-bold border border-green-100 w-fit">
-                        Selesai Validasi
-                      </span>
+                      {(() => {
+                        const status = String(item?.status || '').toLowerCase();
+                        if (status === 'revision' || status.includes('revisi')) {
+                          return <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded-full text-[10px] font-bold border border-amber-200 w-fit">Revisi Analis</span>;
+                        }
+                        return <span className="bg-green-50 text-green-700 px-2 py-1 rounded-full text-[10px] font-bold border border-green-100 w-fit">Selesai Validasi</span>;
+                      })()}
                     </td>
 
                     {/* Kolom 6: Aksi */}

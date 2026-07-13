@@ -11,6 +11,7 @@ const History = () => {
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
   const LEGACY_STATUS = {
     waiting: 'Menunggu Validasi',
+    revision: 'Revisi Analis',
     done: 'Selesai Validasi'
   };
 
@@ -98,6 +99,7 @@ const History = () => {
   const getStatusLabel = (item) => {
     const statusRaw = String(item?.status || item?.validation_status || item?.status_validasi || '');
     const status = statusRaw.toLowerCase();
+    if (status === 'revision') return LEGACY_STATUS.revision;
     const isDone =
       status === 'validated' ||
       status === 'tervalidasi' ||
@@ -140,6 +142,8 @@ const History = () => {
     switch (normalized) {
       case 'menunggu validasi':
         return <span className="bg-yellow-50 text-yellow-700 px-2 py-1 rounded-full text-[10px] font-bold border border-yellow-100 w-fit">{status}</span>;
+      case 'revisi analis':
+        return <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded-full text-[10px] font-bold border border-amber-200 w-fit">{status}</span>;
       case 'selesai validasi':
         return <span className="bg-green-50 text-green-700 px-2 py-1 rounded-full text-[10px] font-bold border border-green-100 w-fit">{status}</span>;
       default:
@@ -225,6 +229,7 @@ const History = () => {
             >
               <option value="Semua Status">Semua Status</option>
               <option value="Menunggu Validasi">Menunggu Validasi</option>
+              <option value="Revisi Analis">Revisi Analis</option>
               <option value="Selesai Validasi">Selesai Validasi</option>
             </select>
           </div>

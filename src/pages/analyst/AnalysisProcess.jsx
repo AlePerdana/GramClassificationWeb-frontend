@@ -6,10 +6,11 @@ import {
   Upload, X, Play, Save, ArrowLeft, ArrowRight, Microscope,
   CheckCircle, Activity, Maximize2, AlertTriangle,
   Info, ZoomIn, ZoomOut, Move, Crop, Scan, Trash, AlertCircle,
-  Hand, MousePointer2, RefreshCw
+  Hand, MousePointer2, RefreshCw, Lock
 } from 'lucide-react';
 import { APP_CONFIG } from '../../utils/constant';
 import NgrokImage from '../../components/common/NgrokImage';
+import InternalMessageThread from '../../components/common/InternalMessageThread';
 
 const AnalysisProcess = () => {
   const { id } = useParams();
@@ -65,12 +66,18 @@ const AnalysisProcess = () => {
     analyst_note: '',
   });
 
+  // Revision & Messaging State
+  const [specimenStatus, setSpecimenStatus] = useState(null);
+  const [revisionSpecimenId, setRevisionSpecimenId] = useState(null);
+  const [classificationMessage, setClassificationMessage] = useState('');
+  const [hasMessages, setHasMessages] = useState(false);
+
   // Interaction Refs & State
   const imgContainerRef = useRef(null);
   const imageElementRef = useRef(null);
   const modalImgRef = useRef(null);
   const modalImageRef = useRef(null);
-  const cleanupData = useRef({ isSubmitted: false, uploadedSpecimens: [] });
+  const cleanupData = useRef({ isSubmitted: false, uploadedSpecimens: [], status: null });
   const [isInteracting, setIsInteracting] = useState(false); // Drawing or Dragging
   const [startPos, setStartPos] = useState({ x: 0, y: 0 }); // Posisi awal mouse (Relatif terhadap image)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // Posisi awal mouse (Screen) untuk Panning
@@ -229,6 +236,8 @@ const AnalysisProcess = () => {
           
           if (specimenData && specimenData.patient) {
             setPatientDbId(specimenData.patient_id);
+            setSpecimenStatus(specimenData.status || null);
+            if (specimenData.id) setRevisionSpecimenId(specimenData.id);
             const patientData = {
               id_pasien: specimenData.patient.id_pasien || specimenData.patient.patient_id || '-',
               nama_lengkap: specimenData.patient.nama || specimenData.patient.name || '-',
@@ -271,6 +280,9 @@ const AnalysisProcess = () => {
             if (Array.isArray(specimenData.classifications)) {
               setRawClassifications(specimenData.classifications);
             }
+            if (Array.isArray(specimenData.messages) && specimenData.messages.length > 0) {
+              setHasMessages(true);
+            }
             setIsPatientLoading(false);
             return;
           }
@@ -307,6 +319,145 @@ const AnalysisProcess = () => {
             no_telepon: data.no_telepon || '',
             alamat: data.alamat || '',
           });
+
+          // Check if patient already has a latest specimen
+          const specIdToFetch = data.latest_specimen_id;
+          let specimenLoaded = false;
+          if (specIdToFetch) {
+            try {
+              const specResponse = await fetch(`${API_HOST}/api/doctor/specimen-details/${specIdToFetch}`, {
+                method: 'GET',
+                headers: {
+                  Accept: 'application/json',
+                  ...authService.getAuthorizationHeader(),
+                },
+              });
+              if (specResponse.ok) {
+                const result = await specResponse.json();
+                const specimenData = result?.data || result;
+                if (specimenData) {
+                  setSpecimenStatus(specimenData.status || null);
+                  setRevisionSpecimenId(specimenData.id);
+
+                  // Map existing specimen metadata
+                  setSpecimenMeta({
+                    accession_number: specimenData.accession_number || '',
+                    specimen_type: specimenData.specimen_type || '',
+                    doctor_sender: specimenData.doctor_sender || '',
+                    clinical_diagnosis: specimenData.clinical_diagnosis || '',
+                    collected_at: specimenData.collected_at ? specimenData.collected_at.slice(0, 16) : '',
+                    received_at: specimenData.received_at ? specimenData.received_at.slice(0, 16) : '',
+                    microscope_type: specimenData.microscope_type || '',
+                    magnification: specimenData.magnification || '',
+                    analyst_note: specimenData.analyst_note || '',
+                  });
+
+                  // Map images
+                  const specs = specimenData.all_specimens && specimenData.all_specimens.length > 0
+                    ? specimenData.all_specimens
+                    : [specimenData];
+                  
+                  const restoredImages = specs.map(s => ({
+                    previewUrl: toAbsoluteUploadUrl(s.main_image_url || s.main_image_path || s.file_path || s.annotated_image_url || ''),
+                    specimenId: s.specimen_id || s.id,
+                    fileName: s.fileName || `specimen-${s.specimen_id || s.id}`,
+                    filePath: s.main_image_path || s.file_path || s.main_image_url || '',
+                  }));
+                  
+                  setImages(restoredImages);
+                  setUploadedSpecimens(specs.map(s => ({ id: s.specimen_id || s.id })));
+                  
+                  if (Array.isArray(specimenData.classifications)) {
+                    setRawClassifications(specimenData.classifications);
+                  }
+                  if (Array.isArray(specimenData.messages) && specimenData.messages.length > 0) {
+                    setHasMessages(true);
+                  }
+                  specimenLoaded = true;
+                }
+              }
+            } catch (err) {
+              console.warn('Failed to load specimen details for patient:', err);
+            }
+          }
+
+          if (!specimenLoaded) {
+            // Fallback: cek apakah pasien ini punya specimen status revision
+            try {
+              const revCheck = await fetch(`${API_BASE_URL}/patients?specimen_status=revision&include_no_specimen=false`, {
+                method: 'GET',
+                headers: { Accept: 'application/json', ...authService.getAuthorizationHeader() },
+              });
+              if (revCheck.ok) {
+                const revPayload = await revCheck.json();
+                const revList = Array.isArray(revPayload?.data) ? revPayload.data : Array.isArray(revPayload) ? revPayload : [];
+                const matched = revList.find(p =>
+                  String(p.id || p.id_pasien) === String(data.id || data.id_pasien)
+                );
+                if (matched) {
+                  setSpecimenStatus('revision');
+                  // Ekstrak specimen ID dari response (latest_specimen_id dari backend)
+                  const specId = matched.latest_specimen_id;
+                  if (specId) {
+                    setRevisionSpecimenId(specId);
+                    
+                    // Fetch and load specimen details
+                    try {
+                      const specResponse = await fetch(`${API_HOST}/api/doctor/specimen-details/${specId}`, {
+                        method: 'GET',
+                        headers: {
+                          Accept: 'application/json',
+                          ...authService.getAuthorizationHeader(),
+                        },
+                      });
+                      if (specResponse.ok) {
+                        const result = await specResponse.json();
+                        const specimenData = result?.data || result;
+                        if (specimenData) {
+                          setSpecimenMeta({
+                            accession_number: specimenData.accession_number || '',
+                            specimen_type: specimenData.specimen_type || '',
+                            doctor_sender: specimenData.doctor_sender || '',
+                            clinical_diagnosis: specimenData.clinical_diagnosis || '',
+                            collected_at: specimenData.collected_at ? specimenData.collected_at.slice(0, 16) : '',
+                            received_at: specimenData.received_at ? specimenData.received_at.slice(0, 16) : '',
+                            microscope_type: specimenData.microscope_type || '',
+                            magnification: specimenData.magnification || '',
+                            analyst_note: specimenData.analyst_note || '',
+                          });
+
+                          const specs = specimenData.all_specimens && specimenData.all_specimens.length > 0
+                            ? specimenData.all_specimens
+                            : [specimenData];
+                          
+                          const restoredImages = specs.map(s => ({
+                            previewUrl: toAbsoluteUploadUrl(s.main_image_url || s.main_image_path || s.file_path || s.annotated_image_url || ''),
+                            specimenId: s.specimen_id || s.id,
+                            fileName: s.fileName || `specimen-${s.specimen_id || s.id}`,
+                            filePath: s.main_image_path || s.file_path || s.main_image_url || '',
+                          }));
+                          
+                          setImages(restoredImages);
+                          setUploadedSpecimens(specs.map(s => ({ id: s.specimen_id || s.id })));
+                          
+                          if (Array.isArray(specimenData.classifications)) {
+                            setRawClassifications(specimenData.classifications);
+                          }
+                          if (Array.isArray(specimenData.messages) && specimenData.messages.length > 0) {
+                            setHasMessages(true);
+                          }
+                        }
+                      }
+                    } catch (err) {
+                      console.warn('Failed to load specimen details for patient revision:', err);
+                    }
+                  }
+                }
+              }
+            } catch {
+              // silent
+            }
+          }
         } else {
           setPatient(null);
           console.error('Gagal mengambil data pasien');
@@ -1142,6 +1293,30 @@ const AnalysisProcess = () => {
 
     setStatus('analyzing');
 
+    // Kirim pesan opsional sebelum klasifikasi
+    if (classificationMessage.trim() && uploadedSpecimens.length > 0) {
+      const firstSpecId = uploadedSpecimens[0]?.id;
+      if (firstSpecId) {
+        try {
+          await fetch(`${API_HOST}/api/messages/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              ...authService.getAuthorizationHeader(),
+            },
+            body: JSON.stringify({
+              specimen_id: firstSpecId,
+              message_text: `[Pra-klasifikasi] ${classificationMessage.trim()}`,
+            }),
+          });
+        } catch (e) {
+          console.error('Failed to send pre-classification message:', e);
+        }
+        setClassificationMessage('');
+      }
+    }
+
     try {
       const aggregatedResults = [];
       let nextRoisState = { ...rois };
@@ -1237,17 +1412,17 @@ const AnalysisProcess = () => {
         nextRoisState[idx] = current.map((roi, roiIdx) => {
           const roiId = roi.id ?? roiIdx;
           const ai = normalizedResults.find((r) => (r.roi_id ?? r.id) === roiId) || normalizedResults[roiIdx];
-          if (!ai) return roi;
+          if (!ai) return null;
           return {
             ...roi,
             id: roiId,
             status: 'done',
-            aiGram: ai?.classification_gram ?? ai?.aiGram ?? 'Kokus',
-            aiShape: ai?.classification_shape ?? ai?.aiShape ?? 'Kokus',
+            aiGram: ai?.classification_gram ?? ai?.aiGram ?? '',
+            aiShape: ai?.classification_shape ?? ai?.aiShape ?? '',
             confidence: Number(ai?.classification_confidence ?? ai?.confidence ?? 1),
             cropUrl: ai?.image_file_name ?? ai?.crop_url ?? roi?.cropUrl ?? '',
           };
-        });
+        }).filter(Boolean);
       }
 
       setRois(nextRoisState);
@@ -1268,6 +1443,7 @@ const AnalysisProcess = () => {
       });
 
       localStorage.removeItem(draftStorageKey);
+      setSpecimenStatus('waiting_validation');
       setIsSubmitted(true);
       setStatus('done');
       setMode('view');
@@ -1297,12 +1473,15 @@ const AnalysisProcess = () => {
   // --- FUNGSI TOMBOL RESET / CANCEL ---
   const handleReset = async () => {
     if (window.confirm('Yakin ingin membatalkan? Semua gambar dan hasil klasifikasi akan dihapus.')) {
-      await Promise.all(
-        uploadedSpecimens.map((specimen) => {
-          const specimenId = specimen.id ?? specimen.specimen_id;
-          return specimenId ? deleteOrphanedSpecimen(specimenId) : Promise.resolve();
-        })
-      );
+      // Hanya hapus specimen baru (upload session ini), jangan specimen yang sudah ada di server (revision/validated)
+      if (!specimenStatus) {
+        await Promise.all(
+          uploadedSpecimens.map((specimen) => {
+            const specimenId = specimen.id ?? specimen.specimen_id;
+            return specimenId ? deleteOrphanedSpecimen(specimenId) : Promise.resolve();
+          })
+        );
+      }
 
       cleanupData.current.uploadedSpecimens = [];
 
@@ -1320,7 +1499,8 @@ const AnalysisProcess = () => {
 
   // --- FUNGSI KEMBALI (BACK) DENGAN CLEANUP ---
   const handleBack = async () => {
-    if (!isSubmitted && uploadedSpecimens.length > 0) {
+    // Hanya cleanup specimen baru, jangan specimen yang sudah ada di server (revision/validated)
+    if (!isSubmitted && uploadedSpecimens.length > 0 && !specimenStatus) {
       await Promise.all(
         uploadedSpecimens.map((specimen) => {
           const specimenId = specimen.id ?? specimen.specimen_id;
@@ -1399,8 +1579,8 @@ const AnalysisProcess = () => {
 
   // Sinkronkan ref cleanup dengan state terbaru
   useEffect(() => {
-    cleanupData.current = { isSubmitted, uploadedSpecimens };
-  }, [isSubmitted, uploadedSpecimens]);
+    cleanupData.current = { isSubmitted, uploadedSpecimens, status: specimenStatus };
+  }, [isSubmitted, uploadedSpecimens, specimenStatus]);
 
   // UNMOUNT murni: hanya saat keluar/pindah halaman
   useEffect(() => {
@@ -1413,9 +1593,11 @@ const AnalysisProcess = () => {
       const {
         isSubmitted: finalIsSubmitted,
         uploadedSpecimens: finalSpecimens,
+        status: finalStatus,
       } = cleanupData.current;
 
-      if (!finalIsSubmitted && finalSpecimens.length > 0) {
+      // Jangan cleanup specimen yang berasal dari server (revision/validated/waiting_validation)
+      if (!finalIsSubmitted && finalSpecimens.length > 0 && !finalStatus) {
         finalSpecimens.forEach((specimen) => {
           const specimenId = specimen.id ?? specimen.specimen_id;
           if (specimenId) {
@@ -1473,6 +1655,8 @@ const AnalysisProcess = () => {
     { num: 2, label: 'Analisis Gram' },
     { num: 3, label: 'Review & Kirim' }
   ];
+
+  const activeSpecimenId = revisionSpecimenId || uploadedSpecimens[0]?.id;
 
   if (isPatientLoading) {
     return <div className="min-h-screen flex items-center justify-center">Memuat data pasien...</div>;
@@ -1588,7 +1772,7 @@ const AnalysisProcess = () => {
         <div className="flex flex-col gap-6 flex-1 pb-10">
 
           {/* --- ROW 1: DATA PASIEN & SPESIMEN --- */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
             {/* 1. INFO PASIEN */}
             <div className="bg-white p-4 md:p-5 rounded-xl shadow-md shadow-slate-300/40 border border-gray-200">
               <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -1678,6 +1862,12 @@ const AnalysisProcess = () => {
                 </div>
               </div>
             </div>
+
+            {/* 1c. DISKUSI / KOMENTAR */}
+            <div className="flex flex-col h-full justify-between">
+              <InternalMessageThread specimenId={activeSpecimenId} />
+            </div>
+
           </div>
 
           {/* --- ROW 2: PREVIEW BOX & PANEL KONTROL --- */}
@@ -1961,18 +2151,38 @@ const AnalysisProcess = () => {
                     <p className="text-xs text-slate-500 text-center mb-4">Total hasil: {totalDoneCount}</p>
 
                     <div className="space-y-2">
-                      <button
-                        onClick={() => {
-                          localStorage.removeItem(draftStorageKey);
-                          navigate('/analyst/history');
-                        }}
-                        className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
-                      >
-                        <ArrowLeft size={18} /> Selesai & Kembali ke Riwayat
-                      </button>
-                      <button onClick={handleReset} className="w-full py-2.5 border border-gray-200 text-slate-600 rounded-lg font-medium text-sm hover:bg-slate-50 transition-colors">
-                        <RefreshCw size={16} className="inline mr-1" /> Analisis Ulang (Reset)
-                      </button>
+                      {specimenStatus === 'validated' ? (
+                        <>
+                          <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-700 mb-2">
+                            <Lock size={14} />
+                            <span>Data sudah tervalidasi oleh dokter dan tidak dapat diubah.</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              localStorage.removeItem(draftStorageKey);
+                              navigate('/analyst/history');
+                            }}
+                            className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                          >
+                            <ArrowLeft size={18} /> Selesai & Kembali ke Riwayat
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => {
+                              localStorage.removeItem(draftStorageKey);
+                              navigate('/analyst/history');
+                            }}
+                            className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                          >
+                            <ArrowLeft size={18} /> Selesai & Kembali ke Riwayat
+                          </button>
+                          <button onClick={handleReset} className="w-full py-2.5 border border-gray-200 text-slate-600 rounded-lg font-medium text-sm hover:bg-slate-50 transition-colors">
+                            <RefreshCw size={16} className="inline mr-1" /> Analisis Ulang (Reset)
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -2004,6 +2214,21 @@ const AnalysisProcess = () => {
                       </button>
                     </div>
 
+                    {/* Input pesan opsional sebelum klasifikasi */}
+                    {canStartClassification && status !== 'analyzing' && status !== 'auto_detecting' && (
+                      <div className="border-t border-slate-100 pt-4 mt-2">
+                        <p className="text-xs font-semibold text-slate-500 mb-2">
+                          💬 Catatan untuk Dokter (Opsional)
+                        </p>
+                        <textarea
+                          value={classificationMessage}
+                          onChange={(e) => setClassificationMessage(e.target.value)}
+                          placeholder="Tambahkan catatan atau temuan yang ingin disampaikan ke dokter..."
+                          rows={2}
+                          className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-100 outline-none resize-none"
+                        />
+                      </div>
+                    )}
                     <button
                       onClick={handleStartClassification}
                       disabled={!canStartClassification || status === 'analyzing' || status === 'auto_detecting'}
@@ -2019,7 +2244,10 @@ const AnalysisProcess = () => {
                       ) : (
                         <>
                           <Play size={16} fill="currentColor" />
-                          Mulai Klasifikasi {totalRois > 0 ? `(${totalRois} Area / ${images.length} Sampel)` : ''}
+                          {specimenStatus === 'revision'
+                            ? `Selesai Revisi ${totalRois > 0 ? `(${totalRois} Area)` : ''}`
+                            : `Mulai Klasifikasi ${totalRois > 0 ? `(${totalRois} Area / ${images.length} Sampel)` : ''}`
+                          }
                         </>
                       )}
                     </button>
@@ -2036,6 +2264,7 @@ const AnalysisProcess = () => {
           </div>
         </div>
       </div>
+
 
       {/* --- MODAL FULL PREVIEW (INTERACTIVE) --- */}
       {showFullPreview && images.length > 0 && createPortal(

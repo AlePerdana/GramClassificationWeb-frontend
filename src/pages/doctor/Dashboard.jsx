@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../../service/authService';
-import { 
-  ClipboardCheck, Filter, CheckCircle,
+import {
+  ClipboardCheck, Filter, CheckCircle, RotateCcw,
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, 
@@ -76,6 +76,7 @@ const Dashboard = () => {
   const [chartData, setChartData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isChartLoading, setIsChartLoading] = useState(true);
+  const [revisionCount, setRevisionCount] = useState(0);
 
   useEffect(() => {
     const fetchQueue = async () => {
@@ -132,6 +133,25 @@ const Dashboard = () => {
     };
     fetchChart();
   }, [filter]);
+
+  // Fetch revision count
+  useEffect(() => {
+    const fetchRevisionCount = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/patients?specimen_status=revision&include_no_specimen=false`, {
+          headers: { Accept: 'application/json', ...authService.getAuthorizationHeader() },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const items = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+          setRevisionCount(items.length);
+        }
+      } catch (e) {
+        console.error('Failed to fetch revision count:', e);
+      }
+    };
+    fetchRevisionCount();
+  }, []);
 
   const queueCount = queueData.length;
 
@@ -199,6 +219,18 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* REVISION INFO */}
+      {revisionCount > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-3 shrink-0">
+          <div className="p-2 rounded-full bg-amber-100">
+            <RotateCcw size={16} className="text-amber-600" />
+          </div>
+          <p className="text-sm text-amber-800">
+            <span className="font-bold">{revisionCount}</span> specimen sedang dalam revisi oleh Analis
+          </p>
+        </div>
+      )}
 
       {/* TREN + ANTREAN */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">

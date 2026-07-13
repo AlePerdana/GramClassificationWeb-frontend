@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import authService from '../../service/authService';
 import {
   ArrowLeft, Printer, Edit,
   Info, User, Activity, FileText,
-  ChevronLeft, ChevronRight, AlertTriangle
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { APP_CONFIG } from '../../utils/constant';
 import NgrokImage from '../../components/common/NgrokImage';
 import AnnotatedImage from '../../components/common/AnnotatedImage';
+import InternalMessageThread from '../../components/common/InternalMessageThread';
 
 const API_HOST = APP_CONFIG.API_HOST;
 
@@ -58,7 +58,6 @@ const HistoryDetail = () => {
   const [detailData, setDetailData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [showRevisionModal, setShowRevisionModal] = useState(false);
 
   // Deteksi Role berdasarkan URL saat ini
   const isDoctor = location.pathname.includes('/doctor');
@@ -130,12 +129,14 @@ const HistoryDetail = () => {
     if (!detailData) return null;
 
     const patient = detailData?.patient || {};
+    const rawStatus = String(detailData?.status || detailData?.validation_status || '').toLowerCase();
+    const isRevision = rawStatus === 'revision';
     const isValidated =
       isDoctorHistoryDetail ||
       detailData?.is_validated === true ||
       Boolean(detailData?.validated_at) ||
       Boolean(detailData?.tanggal_validasi) ||
-      String(detailData?.status || detailData?.validation_status || '').toLowerCase().includes('valid');
+      rawStatus.includes('valid');
 
     const mappedCrops = (detailData?.classifications || []).map((item, index) => {
       const aiGram = normalizeGram(item?.ai_gram || item?.classification_gram);
@@ -177,7 +178,7 @@ const HistoryDetail = () => {
 
     return {
       id: detailData?.specimen_code || detailData?.specimen_id || id,
-      status: isValidated ? 'validated' : 'pending',
+      status: isRevision ? 'revision' : (isValidated ? 'validated' : 'pending'),
       patient: {
         name: patient?.nama || patient?.name || detailData?.patient_name || '-',
         age: patient?.umur || patient?.age || '-',
@@ -259,11 +260,7 @@ const HistoryDetail = () => {
   const totalCrops = data.crops.length;
 
   const handleAnalystRevision = () => {
-    if (data.status === 'validated') {
-      setShowRevisionModal(true);
-    } else {
-      navigate(`/analyst/process/${id}`);
-    }
+    navigate(`/analyst/process/${id}`);
   };
 
   return (
@@ -280,8 +277,17 @@ const HistoryDetail = () => {
             <ArrowLeft className="text-slate-600" />
           </button>
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl font-bold text-slate-800">Detail Riwayat Analisis</h1>
+              <span className={`px-3 py-1 rounded-full text-[11px] font-bold border ${
+                data.status === 'validated'
+                  ? 'bg-green-50 text-green-700 border-green-200'
+                  : data.status === 'revision'
+                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                    : 'bg-blue-50 text-blue-700 border-blue-200'
+              }`}>
+                {data.status === 'validated' ? 'Selesai' : data.status === 'revision' ? 'Revisi Analis' : 'Menunggu Validasi Dokter'}
+              </span>
             </div>
             <p className="text-slate-500 text-sm mt-1">ID Spesimen: <span className="font-mono font-bold">{data.id}</span></p>
           </div>
@@ -308,7 +314,7 @@ const HistoryDetail = () => {
             </>
           )}
 
-          {isAnalyst && (
+          {isAnalyst && data.status === 'revision' && (
             <button
               onClick={handleAnalystRevision}
               className="px-4 py-2 bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors"
@@ -419,9 +425,17 @@ const HistoryDetail = () => {
       </div>
 
       {/* CATATAN DOKTER */}
-      <div className={`p-6 rounded-2xl border ${data.status === 'validated' ? 'bg-blue-50/50 border-blue-100' : 'bg-slate-50 border-slate-200'}`}>
+      <div className={`p-6 rounded-2xl border ${
+        data.status === 'validated' ? 'bg-blue-50/50 border-blue-100' :
+        data.status === 'revision' ? 'bg-amber-50 border-amber-200' :
+        'bg-slate-50 border-slate-200'
+      }`}>
         <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-3">
-          <FileText size={18} className={data.status === 'validated' ? 'text-blue-600' : 'text-slate-400'} />
+          <FileText size={18} className={
+            data.status === 'validated' ? 'text-blue-600' :
+            data.status === 'revision' ? 'text-amber-600' :
+            'text-slate-400'
+          } />
           Catatan & Kesimpulan Dokter
         </h3>
 
@@ -429,6 +443,11 @@ const HistoryDetail = () => {
           <p className="text-sm text-slate-700 leading-relaxed bg-white p-4 rounded-xl border border-blue-50 shadow-sm">
             {data.doctorNote || 'Tidak ada catatan tambahan dari dokter.'}
           </p>
+        ) : data.status === 'revision' ? (
+          <div className="flex items-center gap-3 text-sm text-amber-700 bg-white p-4 rounded-xl border border-amber-100">
+            <Info size={18} className="text-amber-500" />
+            <p>Dokter meminta revisi pada analisis ini. Silakan periksa pesan internal untuk detail revisi.</p>
+          </div>
         ) : (
           <div className="flex items-center gap-3 text-sm text-slate-500 bg-white p-4 rounded-xl border border-slate-100">
             <Info size={18} className="text-slate-400" />
@@ -437,38 +456,10 @@ const HistoryDetail = () => {
         )}
       </div>
 
-      {/* MODAL KONFIRMASI REVISI */}
-      {showRevisionModal && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 shadow-2xl max-w-md w-full border border-slate-100 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center gap-3 text-amber-500 mb-4">
-              <AlertTriangle className="w-8 h-8" />
-              <h3 className="text-lg font-bold text-slate-800">Konfirmasi Revisi</h3>
-            </div>
-            <p className="text-slate-600 text-sm leading-relaxed mb-6">
-              Data sudah selesai divalidasi. Lanjutkan revisi? Status akan kembali ke Menunggu Validasi.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowRevisionModal(false)}
-                className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-lg text-sm font-semibold transition-colors"
-              >
-                Batal
-              </button>
-              <button
-                onClick={() => {
-                  setShowRevisionModal(false);
-                  navigate(`/analyst/process/${id}`);
-                }}
-                className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-semibold transition-all active:scale-95 shadow-md"
-              >
-                Ya, Lanjutkan
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      {/* PESAN INTERNAL */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <InternalMessageThread specimenId={id} readOnly={data.status !== 'revision'} />
+      </div>
 
     </div>
   );

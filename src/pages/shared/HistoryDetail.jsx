@@ -130,7 +130,7 @@ const HistoryDetail = () => {
 
     const patient = detailData?.patient || {};
     const rawStatus = String(detailData?.status || detailData?.validation_status || '').toLowerCase();
-    const isRevision = rawStatus === 'revision';
+    const isRevision = rawStatus === 'revision' || rawStatus.includes('revisi');
     const isValidated =
       isDoctorHistoryDetail ||
       detailData?.is_validated === true ||

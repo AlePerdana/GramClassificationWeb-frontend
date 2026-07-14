@@ -511,8 +511,9 @@ const ValidationDetail = () => {
                   <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                 </div>
               </label>
-              {/* Kembalikan untuk Revisi — untuk status belum divalidasi */}
-              {String(specimenData?.validation_status || '').toLowerCase() !== 'validated' && (
+              {/* Kembalikan untuk Revisi — untuk status belum divalidasi dan bukan sedang dalam revisi */}
+              {String(specimenData?.validation_status || '').toLowerCase() !== 'validated' &&
+                String(specimenData?.status || '').toLowerCase() !== 'revision' && (
                 <button
                   onClick={() => setShowRevisionModal(true)}
                   disabled={isSubmitting}
@@ -533,7 +534,7 @@ const ValidationDetail = () => {
               )}
               <button
                 onClick={handleSubmitValidation}
-                disabled={isSubmitting || rows.length === 0}
+                disabled={isSubmitting || rows.length === 0 || String(specimenData?.status || '').toLowerCase() === 'revision'}
                 className="px-5 py-2 bg-blue-600 text-white rounded-lg font-bold shadow-sm hover:bg-blue-700 active:scale-95 transition-all flex items-center gap-2 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100 text-sm"
               >
                 <Check size={16} /> {isSubmitting ? 'Menyimpan...' : 'Validasi Hasil'}

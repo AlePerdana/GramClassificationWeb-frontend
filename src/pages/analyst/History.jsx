@@ -95,11 +95,10 @@ const History = () => {
 
     fetchHistory();
   }, [API_BASE_URL, navigate]);
-
   const getStatusLabel = (item) => {
     const statusRaw = String(item?.status || item?.validation_status || item?.status_validasi || '');
     const status = statusRaw.toLowerCase();
-    if (status === 'revision') return LEGACY_STATUS.revision;
+    if (status === 'revision' || status.includes('revisi')) return LEGACY_STATUS.revision;
     const isDone =
       status === 'validated' ||
       status === 'tervalidasi' ||
@@ -109,6 +108,7 @@ const History = () => {
       Boolean(item?.tanggal_validasi);
     return isDone ? LEGACY_STATUS.done : LEGACY_STATUS.waiting;
   };
+
 
   // Filter Logic - searches patient name and specimen codes
   const filteredData = historyData.filter(item => {

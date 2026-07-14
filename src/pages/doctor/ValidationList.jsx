@@ -116,6 +116,7 @@ const ValidationList = () => {
               clinical_diagnosis: item.clinical_diagnosis,
               validation_status: item.validation_status,
               total_bakteri: bakteri,
+              status: item.status || 'waiting_validation',
             });
           }
           setQueueData(Array.from(map.values()));
@@ -215,13 +216,14 @@ const ValidationList = () => {
                 <th className="p-5 text-center">Waktu Masuk</th>
                 <th className="p-5 text-center">Nama Pasien</th>
                 <th className="p-5 text-center">Jumlah Sampel</th>
+                <th className="p-5 text-center">Status</th>
                 <th className="p-5 text-center">Prioritas</th>
                 <th className="p-5 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {isLoading ? (
-                <tr><td colSpan="5" className="p-10 text-center text-gray-400">Memuat antrean validasi...</td></tr>
+                <tr><td colSpan="6" className="p-10 text-center text-gray-400">Memuat antrean validasi...</td></tr>
               ) : paginatedPatients.length > 0 ? (
                 paginatedPatients.map((patient, pIdx) => {
                   const specimens = patient.specimens || [];
@@ -229,6 +231,10 @@ const ValidationList = () => {
                   const uploadTime = patient.earliest_upload || '-';
                   const priorityInfo = getPriorityBadge(getPriorityLevel(specimens[0] || patient));
                   const firstSpecimenId = specimens[0]?.id_specimen || null;
+                  const isUnderRevision = specimens.some(s => s.status === 'revision');
+                  const statusBadgeClass = isUnderRevision
+                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                    : 'bg-yellow-50 text-yellow-700 border border-yellow-100';
 
                   return (
                   <tr key={patient.id_pasien || `patient-${pIdx}`} className="hover:bg-blue-50/30 transition-colors">
@@ -244,6 +250,11 @@ const ValidationList = () => {
                       </span>
                     </td>
                     <td className="p-5 text-center">
+                      <span className={`px-2.5 py-1 text-xs font-bold rounded-full border ${statusBadgeClass}`}>
+                        {isUnderRevision ? 'Revisi Analis' : 'Menunggu Validasi'}
+                      </span>
+                    </td>
+                    <td className="p-5 text-center">
                       {priorityInfo && (
                         <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${priorityInfo.className}`}>
                           {priorityInfo.label}
@@ -252,19 +263,14 @@ const ValidationList = () => {
                     </td>
                     <td className="p-5 text-center">
                       <div className="flex items-center justify-center">
-                        <button
-                          onClick={() => handleValidate(firstSpecimenId)}
-                          className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95"
-                        >
-                          Validasi
-                        </button>
+                        <button onClick={() => handleValidate(firstSpecimenId)} className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm flex items-center justify-center gap-2 mx-auto transition-all active:scale-95">{isUnderRevision ? 'Tinjau' : 'Validasi'}</button>
                       </div>
                     </td>
                   </tr>
                   );
                 })
               ) : (
-                <tr><td colSpan="5" className="p-10 text-center text-gray-400">Tidak ada antrean validasi ditemukan.</td></tr>
+                <tr><td colSpan="6" className="p-10 text-center text-gray-400">Tidak ada antrean validasi ditemukan.</td></tr>
               )}
             </tbody>
           </table>
